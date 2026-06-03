@@ -313,6 +313,16 @@ class Database:
             "SELECT COUNT(*) as c FROM grammar_rules WHERE category='introduction'").fetchone()["c"]
         if intro_gr < 3:
             self._insert_introduction_grammar()
+        # Yo'l/sayohat so'zlari
+        nav_cnt = self.conn.execute(
+            "SELECT COUNT(*) as c FROM words WHERE category='navigation'").fetchone()["c"]
+        if nav_cnt < 20:
+            self._insert_navigation_words()
+        # Yo'l grammatikasi
+        nav_gr = self.conn.execute(
+            "SELECT COUNT(*) as c FROM grammar_rules WHERE category='navigation'").fetchone()["c"]
+        if nav_gr < 2:
+            self._insert_navigation_grammar()
 
     def _insert_starter_words(self):
         words = [
@@ -630,6 +640,226 @@ class Database:
             self.conn.execute("""INSERT OR IGNORE INTO words
                 (russian,uzbek,pronunciation,category,level,example_ru,example_uz)
                 VALUES(?,?,?,?,?,?,?)""", w)
+        self.conn.commit()
+
+    def _insert_navigation_words(self):
+        """Yo'l va joylarga oid 53 ta grammatik so'z"""
+        words = [
+            # ── Yo'l so'rash ──────────────────────────────────────────────
+            ("Где находится ...?", "... qayerda joylashgan?",     "gdye na-KHO-dee-tsya",  "navigation","beginner",
+             "Где находится вокзал?",                             "Vokzal qayerda joylashgan?"),
+            ("Как пройти до ...?","... ga qanday borish mumkin?", "kak pray-TEE da",        "navigation","beginner",
+             "Как пройти до метро?",                              "Metroga qanday borish mumkin?"),
+            ("Как доехать до ...?","... ga qanday etib borish?",  "kak da-YEH-khat' da",   "navigation","beginner",
+             "Как доехать до аэропорта?",                         "Aeroportga qanday etib borish?"),
+            ("Скажите, пожалуйста","Iltimos, ayting",             "ska-ZHEE-tye pa-ZHA-lus-ta","navigation","beginner",
+             "Скажите, пожалуйста, где аптека?",                  "Iltimos, dorixona qayerda?"),
+            ("Я заблудился",     "Men adashib qoldim",            "ya za-bloo-DEE-lsya",    "navigation","beginner",
+             "Помогите, я заблудился!",                           "Yordam bering, adashib qoldim!"),
+            ("Покажите на карте","Xaritada ko'rsating",           "pa-ka-ZHEE-tye na KAR-tye","navigation","intermediate",
+             "Покажите на карте, где мы находимся.",              "Xaritada qaerda ekanligimizni ko'rsating."),
+
+            # ── Yo'nalish so'zlari ───────────────────────────────────────
+            ("Прямо",            "To'g'ri",                       "PRYA-ma",                "navigation","beginner",
+             "Идите прямо двести метров.",                        "To'g'ri ikki yuz metr yuring."),
+            ("Налево",           "Chapga",                        "na-LYE-va",              "navigation","beginner",
+             "Поверните налево у светофора.",                     "Svetofor oldida chapga buriling."),
+            ("Направо",          "O'ngga",                        "na-PRA-va",              "navigation","beginner",
+             "Поверните направо.",                                "O'ngga buriling."),
+            ("Назад",            "Orqaga",                        "na-ZAT",                 "navigation","beginner",
+             "Вернитесь назад.",                                  "Orqaga qayting."),
+            ("Вперёд",           "Oldinga",                       "fpye-RYOT",              "navigation","beginner",
+             "Идите вперёд.",                                     "Oldinga yuring."),
+            ("Рядом",            "Yaqinda / yonida",              "RYA-dam",                "navigation","beginner",
+             "Банк рядом с почтой.",                              "Bank pochta yonida."),
+            ("Напротив",         "Qarshisida",                    "na-PRO-teev",            "navigation","beginner",
+             "Аптека напротив школы.",                            "Dorixona maktab qarshisida."),
+            ("Рядом с",          "... yonida",                    "RYA-dam s",              "navigation","beginner",
+             "Кафе рядом с банком.",                              "Kafe bank yonida."),
+            ("Между",            "Orasida",                       "MYEZH-doo",              "navigation","beginner",
+             "Парк между банком и почтой.",                       "Park bank va pochta orasida."),
+            ("За углом",         "Burchak ortida",                "za oog-LOM",             "navigation","intermediate",
+             "Магазин за углом.",                                 "Do'kon burchak ortida."),
+            ("На перекрёстке",   "Chorrahada",                    "na pye-rye-KRYOS-tkye",  "navigation","intermediate",
+             "Поверните на перекрёстке.",                         "Chorrahada buriling."),
+            ("До светофора",     "Svetoforgacha",                 "da svye-ta-FO-ra",       "navigation","intermediate",
+             "Идите прямо до светофора.",                         "Svetoforgacha to'g'ri boring."),
+
+            # ── Transport turlari ─────────────────────────────────────────
+            ("Метро",            "Metro",                         "myet-RO",                "navigation","beginner",
+             "Где ближайшее метро?",                              "Eng yaqin metro qayerda?"),
+            ("Автобус",          "Avtobus",                       "af-TO-boos",             "navigation","beginner",
+             "Какой автобус едет в центр?",                       "Markazga qaysi avtobus boradi?"),
+            ("Маршрутка",        "Marshrutka",                    "mar-SHROOT-ka",          "navigation","beginner",
+             "Маршрутка № 15 идёт до вокзала.",                  "15-marshrutka vokzalgacha boradi."),
+            ("Такси",            "Taksi",                         "tak-SEE",                "navigation","beginner",
+             "Вызовите такси, пожалуйста.",                       "Iltimos, taksi chaqiring."),
+            ("Троллейбус",       "Trolleybus",                    "tral-LYEY-boos",         "navigation","beginner",
+             "Троллейбус останавливается здесь.",                 "Trolleybus shu yerda to'xtaydi."),
+            ("Трамвай",          "Tramvay",                       "tram-VAY",               "navigation","beginner",
+             "Трамвай идёт до центра.",                           "Tramvay markazgacha boradi."),
+            ("Пешком",           "Yayov",                         "pyesh-KOM",              "navigation","beginner",
+             "Отсюда пешком пять минут.",                         "Bu yerdan yayov besh daqiqa."),
+
+            # ── Joy nomlari ───────────────────────────────────────────────
+            ("Остановка",        "Bekat",                         "as-ta-NOF-ka",           "navigation","beginner",
+             "Следующая остановка — рынок.",                      "Keyingi bekat — bozor."),
+            ("Вокзал",           "Vokzal",                        "vak-ZAL",                "navigation","beginner",
+             "До вокзала далеко?",                                "Vokzalgacha uzoqmi?"),
+            ("Аэропорт",         "Aeroport",                      "a-e-ra-PORT",            "navigation","beginner",
+             "Аэропорт далеко от центра.",                        "Aeroport markazdan uzoq."),
+            ("Центр города",     "Shahar markazi",                "TSENTR GO-ra-da",        "navigation","beginner",
+             "Как доехать до центра?",                            "Markazga qanday borish mumkin?"),
+            ("Площадь",          "Maydon",                        "PLO-shchad'",            "navigation","beginner",
+             "Встретимся на площади.",                            "Maydonida uchrashamiz."),
+            ("Парк",             "Park",                          "park",                   "navigation","beginner",
+             "Парк рядом с домом.",                               "Park uy yonida."),
+            ("Банк",             "Bank",                          "bank",                   "navigation","beginner",
+             "Банк работает с 9 до 18.",                          "Bank 9 dan 18 gacha ishlaydi."),
+            ("Почта",            "Pochta",                        "POCH-ta",                "navigation","beginner",
+             "Почта закрыта.",                                    "Pochta yopiq."),
+            ("Полиция",          "Politsiya",                     "pa-LEE-tsee-ya",         "navigation","beginner",
+             "Где полиция?",                                      "Politsiya qayerda?"),
+            ("Посольство",       "Elchixona",                     "pa-SOL'-stva",           "navigation","intermediate",
+             "Посольство Узбекистана здесь.",                     "O'zbekiston elchixonasi shu yerda."),
+
+            # ── Masofa va vaqt ────────────────────────────────────────────
+            ("Далеко",           "Uzoq",                          "da-lye-KO",              "navigation","beginner",
+             "Это далеко отсюда?",                                "Bu yerdan uzoqmi?"),
+            ("Близко",           "Yaqin",                         "BLEES-ka",               "navigation","beginner",
+             "Вокзал близко.",                                    "Vokzal yaqin."),
+            ("Отсюда",           "Bu yerdan",                     "at-SYOO-da",             "navigation","beginner",
+             "Отсюда двести метров.",                             "Bu yerdan ikki yuz metr."),
+            ("Минут пешком",     "Daqiqa yayov",                  "mee-NOOT pyesh-KOM",     "navigation","beginner",
+             "Пять минут пешком.",                                "Besh daqiqa yayov."),
+            ("На машине",        "Mashinada",                     "na ma-SHEE-nye",         "navigation","beginner",
+             "На машине десять минут.",                           "Mashinada o'n daqiqa."),
+            ("Первый поворот",   "Birinchi burilish",             "PYER-viy pa-va-ROT",     "navigation","intermediate",
+             "Первый поворот направо.",                           "Birinchi burilishda o'ngga."),
+            ("Второй поворот",   "Ikkinchi burilish",             "fta-ROY pa-va-ROT",      "navigation","intermediate",
+             "На втором повороте налево.",                        "Ikkinchi burilishda chapga."),
+
+            # ── Buyurtma va so'rash ───────────────────────────────────────
+            ("Отвезите меня в ...","Meni ... ga olib boring",     "at-vye-ZEE-tye mye-NYA", "navigation","beginner",
+             "Отвезите меня в аэропорт.",                        "Meni aeroportga olib boring."),
+            ("Остановите здесь",  "Shu yerda to'xtang",          "as-ta-na-VEE-tye zdyes'", "navigation","beginner",
+             "Остановите здесь, пожалуйста.",                    "Iltimos, shu yerda to'xtang."),
+            ("Сколько стоит?",    "Qancha turadi?",               "SKOL'-ka STO-eet",        "navigation","beginner",
+             "Сколько стоит до центра?",                         "Markazgacha qancha turadi?"),
+            ("Есть ли ...?",      "... bormi?",                   "yest' lee",               "navigation","beginner",
+             "Есть ли здесь банкомат?",                          "Bu yerda bankomat bormi?"),
+            ("Мне нужно в ...",   "Menga ... ga borish kerak",    "mnye NOOZH-na v",         "navigation","beginner",
+             "Мне нужно в больницу.",                            "Menga kasalxonaga borish kerak."),
+            ("Я еду до ...",      "Men ... gacha ketaman",        "ya YEH-doo da",           "navigation","beginner",
+             "Я еду до конечной остановки.",                     "Men oxirgi bekatgacha ketaman."),
+            ("Это правильный автобус?","Bu to'g'ri avtobus?",     "ETA PRA-veel'-ny af-TO-boos","navigation","intermediate",
+             "Это правильный автобус до вокзала?",               "Bu vokzalga to'g'ri avtobus?"),
+            ("Пересадка",        "Ko'chma (transfer)",            "pye-rye-SAD-ka",          "navigation","intermediate",
+             "Здесь нужна пересадка?",                           "Bu yerda ko'chish kerakmi?"),
+            ("Выход",            "Chiqish",                       "VY-khat",                 "navigation","beginner",
+             "Где выход?",                                        "Chiqish qayerda?"),
+            ("Вход",             "Kirish",                        "fkhot",                   "navigation","beginner",
+             "Вход свободный.",                                   "Kirish bepul."),
+            ("Маршрут",          "Marshrut",                      "mar-SHOOT",               "navigation","intermediate",
+             "Какой маршрут лучше?",                             "Qaysi marshrut yaxshiroq?"),
+            ("Пробка",           "Tiqilinch",                     "PROB-ka",                 "navigation","intermediate",
+             "На дороге пробка.",                                 "Yo'lda tiqilinch bor."),
+            ("Объезд",           "Aylanma yo'l",                  "ab-YEZD",                 "navigation","intermediate",
+             "Здесь объезд.",                                     "Bu yerda aylanma yo'l bor."),
+        ]
+        for w in words:
+            self.conn.execute("""INSERT OR IGNORE INTO words
+                (russian,uzbek,pronunciation,category,level,example_ru,example_uz)
+                VALUES(?,?,?,?,?,?,?)""", w)
+        self.conn.commit()
+
+    def _insert_navigation_grammar(self):
+        """Yo'l va yo'nalish grammatika qoidalari"""
+        rules = [
+            ("Yo'l so'rash: Где? Куда? Как?", "beginner", "navigation",
+             "Yo'l va joy uchun 3 ta asosiy savol:\n\n"
+             "1. ГДЕ? — Qayerda? (joy)\n"
+             "   Где вокзал? — Vokzal qayerda?\n"
+             "   Где ближайшее метро? — Eng yaqin metro qayerda?\n\n"
+             "2. КУДА? — Qayerga? (yo'nalish)\n"
+             "   Куда едет этот автобус? — Bu avtobus qayerga boradi?\n"
+             "   Куда мне идти? — Qayerga borish kerak?\n\n"
+             "3. КАК ПРОЙТИ / КАК ДОЕХАТЬ? — Qanday borish mumkin?\n"
+             "   Как пройти до парка? (yayov)\n"
+             "   Как доехать до аэропорта? (transport)\n\n"
+             "FOYDALI: СКАЖИТЕ, ПОЖАЛУЙСТА — iltimos ayting\n"
+             "(har doim shunday boshlang — odob belgisi!)",
+             json.dumps([
+                 {"ru": "Где находится вокзал? — Vokzal qayerda?",            "uz": "ГДЕ = qayerda (joy)"},
+                 {"ru": "Куда идёт этот автобус? — Bu avtobus qayerga?",       "uz": "КУДА = qayerga (yo'nalish)"},
+                 {"ru": "Как пройти до метро? — Metroga qanday borish?",       "uz": "КАК ПРОЙТИ = qanday yayov borish"},
+                 {"ru": "Как доехать до центра? — Markazga transport bilan?",  "uz": "КАК ДОЕХАТЬ = qanday transport bilan borish"},
+                 {"ru": "Скажите, пожалуйста, где банк?",                      "uz": "Iltimos, bank qayerda?"},
+             ]),
+             json.dumps([
+                 {"q": "Joy so'rashda qaysi savol ishlatiladi?",
+                  "a": "Где?", "type":"choice",
+                  "options": ["Где?", "Куда?", "Откуда?", "Когда?"]},
+                 {"q": "Yayov borish uchun qaysi ibora?",
+                  "a": "Как пройти?", "type":"choice",
+                  "options": ["Как доехать?", "Как пройти?", "Куда идти?", "Где идти?"]},
+                 {"q": "Transport bilan borish uchun qaysi ibora?",
+                  "a": "Как доехать?", "type":"choice",
+                  "options": ["Как пройти?", "Как доехать?", "Где ехать?", "Куда ехать?"]},
+                 {"q": "Murojaat boshlash uchun eng odobli ibora?",
+                  "a": "Скажите, пожалуйста", "type":"choice",
+                  "options": ["Эй!", "Скажите, пожалуйста", "Ты знаешь?", "Стой!"]},
+             ])
+            ),
+            ("Yo'nalish berish: прямо, налево, направо", "beginner", "navigation",
+             "Yo'nalish ko'rsatish so'zlari:\n\n"
+             "ИДИТЕ — boring (yayov)\n"
+             "ЕЗЖАЙТЕ — boring (transport)\n\n"
+             "  ПРЯМО        — to'g'ri\n"
+             "  НАЛЕВО       — chapga\n"
+             "  НАПРАВО      — o'ngga\n"
+             "  НАЗАД        — orqaga\n\n"
+             "BURCHAK VA MASOFA:\n"
+             "  До светофора прямо — svetoforgacha to'g'ri\n"
+             "  На первом повороте налево — birinchi burilishda chapga\n"
+             "  Рядом с банком — bank yonida\n"
+             "  Напротив школы — maktab qarshisida\n"
+             "  За углом — burchak ortida\n\n"
+             "MASOFA:\n"
+             "  Пять минут пешком — besh daqiqa yayov\n"
+             "  На машине десять минут — mashinada o'n daqiqa\n"
+             "  Это близко / далеко — bu yaqin / uzoq",
+             json.dumps([
+                 {"ru": "Идите прямо, потом направо.",          "uz": "To'g'ri boring, keyin o'ngga."},
+                 {"ru": "На первом повороте налево.",            "uz": "Birinchi burilishda chapga."},
+                 {"ru": "Банк напротив почты.",                  "uz": "Bank pochta qarshisida."},
+                 {"ru": "Пять минут пешком отсюда.",            "uz": "Bu yerdan besh daqiqa yayov."},
+                 {"ru": "Это рядом, не далеко.",                 "uz": "Bu yaqinda, uzoq emas."},
+             ]),
+             json.dumps([
+                 {"q": "'O'ngga' ruscha qanday?",
+                  "a": "направо", "type":"choice",
+                  "options": ["налево", "назад", "направо", "прямо"]},
+                 {"q": "'Chapga' ruscha qanday?",
+                  "a": "налево", "type":"choice",
+                  "options": ["направо", "прямо", "налево", "рядом"]},
+                 {"q": "'Bank yonida' ruscha qanday?",
+                  "a": "рядом с банком", "type":"choice",
+                  "options": ["напротив банка", "рядом с банком", "за банком", "между банков"]},
+                 {"q": "'Besh daqiqa yayov' ruscha?",
+                  "a": "пять минут пешком", "type":"choice",
+                  "options": ["пять минут на машине", "пять минут пешком", "пять пешком минут", "минут пять идти"]},
+                 {"q": "'Svetoforgacha to'g'ri boring' ruscha?",
+                  "a": "Идите прямо до светофора", "type":"choice",
+                  "options": ["Идите налево до светофора", "Едьте прямо до светофора",
+                              "Идите прямо до светофора", "Прямо идите светофор"]},
+             ])
+            ),
+        ]
+        for r in rules:
+            self.conn.execute("""INSERT OR IGNORE INTO grammar_rules
+                (title,level,category,content,examples_json,exercises_json)
+                VALUES(?,?,?,?,?,?)""", r)
         self.conn.commit()
 
     def _insert_introduction_grammar(self):
