@@ -950,15 +950,21 @@ def api_chat():
         messages.append({"role": h["role"], "content": h["content"]})
     messages.append({"role": "user", "content": user_msg})
 
-    system = f"""Sen rus tili o'qituvchisi va suhbat sherigi bo'lib ishlayapsan.
-Foydalanuvchi daraja: {level}.
-Qoidalar:
-- Foydalanuvchining rus tilidagi xatolarini tuzat (qisqacha)
-- {'Oddiy so\'zlar va gaplardan foydalanin' if level == 'beginner' else 'Normal rus tilida gaplashing'}
-- Har javobda o\'zbekcha tarjima qo\'shing
-- Agar xato qilsa, xatoni ko\'rsat va to\'g\'risini yoz
-- Qiziqarli savollar ber, suhbatni davom ettir
-- Qisqa va aniq javob ber"""
+    if level == 'beginner':
+        lang_hint = "Oddiy so'zlar va gaplardan foydalanin"
+    else:
+        lang_hint = "Normal rus tilida gaplashing"
+    system = (
+        "Sen rus tili o'qituvchisi va suhbat sherigi bo'lib ishlayapsan.\n"
+        f"Foydalanuvchi daraja: {level}.\n"
+        "Qoidalar:\n"
+        "- Foydalanuvchining rus tilidagi xatolarini tuzat (qisqacha)\n"
+        f"- {lang_hint}\n"
+        "- Har javobda o'zbekcha tarjima qo'shing\n"
+        "- Agar xato qilsa, xatoni ko'rsat va to'g'risini yoz\n"
+        "- Qiziqarli savollar ber, suhbatni davom ettir\n"
+        "- Qisqa va aniq javob ber"
+    )
 
     response = call_ai(messages, system_prompt=system, max_tokens=500)
     if not response:
