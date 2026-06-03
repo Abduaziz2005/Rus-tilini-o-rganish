@@ -54,12 +54,22 @@ app.secret_key = secrets.token_hex(32)
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
 
 # ── GOOGLE GEMINI API (bepul: 1500 so'rov/kun) ───
-# API kalit olish: https://aistudio.google.com/app/apikey (bepul, Google akkaunt kifoya)
-GEMINI_API_KEY = os.environ.get(
-    "GEMINI_API_KEY",
-    "AIzaSyD-9tSrke72I3lGdwjgKMoLKyHH9VwBMh0"   # ← demo kalit (cheklangan)
-)
-GEMINI_MODEL = "gemini-1.5-flash"   # eng tez va bepul model
+# Kalit olish: https://aistudio.google.com/app/apikey
+# Kalit saqlash: app.py yonida .env fayl yarating:
+#   GEMINI_API_KEY=sizning_kalitingiz_shu_yerga
+GEMINI_MODEL = "gemini-1.5-flash"
+
+def _load_env_key():
+    """app.py yonidagi .env fayldan GEMINI_API_KEY ni o'qiydi"""
+    env_path = BASE_DIR / ".env"
+    if env_path.exists():
+        for line in env_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line.startswith("GEMINI_API_KEY=") and not line.startswith("#"):
+                return line.split("=", 1)[1].strip().strip('"').strip("'")
+    return ""
+
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") or _load_env_key()
 
 def call_ai(messages, system_prompt="", max_tokens=1000):
     """Google Gemini API chaqiruvi (bepul, tashqi kutubxonasiz)"""
@@ -95,15 +105,28 @@ def call_ai(messages, system_prompt="", max_tokens=1000):
         f"{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
     )
     data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(
-        url, data=data,
-        headers={"Content-Type": "application/json"},
-        method="POST"
-    )
+    # AQ. prefiksi → x-goog-api-key header orqali yuboriladi
+    if GEMINI_API_KEY.startswith("AQ."):
+        req = urllib.request.Request(
+            f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent",
+            data=data,
+            headers={"Content-Type": "application/json", "x-goog-api-key": GEMINI_API_KEY},
+            method="POST"
+        )
+    else:
+        req = urllib.request.Request(
+            url, data=data,
+            headers={"Content-Type": "application/json"},
+            method="POST"
+        )
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
             result = json.loads(resp.read())
             return result["candidates"][0]["content"]["parts"][0]["text"]
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", errors="ignore")
+        print(f"[Gemini HTTP {e.code}]: {body[:300]}")
+        return None
     except Exception as e:
         print(f"[Gemini xato]: {e}")
         return None
