@@ -108,7 +108,7 @@ class Database:
         -- O'quvchi profili
         CREATE TABLE IF NOT EXISTS profile (
             id INTEGER PRIMARY KEY,
-            name TEXT DEFAULT 'O\'quvchi',
+            name TEXT DEFAULT 'O''quvchi',
             level TEXT DEFAULT 'beginner',
             total_xp INTEGER DEFAULT 0,
             streak_days INTEGER DEFAULT 0,
@@ -228,7 +228,7 @@ class Database:
         """Boshlang'ich ma'lumotlarni yuklash"""
         # Profil
         if not self.conn.execute("SELECT id FROM profile").fetchone():
-            self.conn.execute("INSERT INTO profile(id,name,level) VALUES(1,'O\\'quvchi','beginner')")
+            self.conn.execute("INSERT INTO profile(id,name,level) VALUES(?,?,?)", (1, "O'quvchi", "beginner"))
             self.conn.commit()
 
         # Settings
