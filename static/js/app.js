@@ -386,7 +386,7 @@ async function loadWordCategories(){
   const sel = $("wordCatFilter");
   if(!sel||!cats) return;
   const cur = sel.value;
-  const catNames = {general:"Umumiy",greeting:"Salomlashish",numbers:"Raqamlar",colors:"Ranglar",family:"Oila",food:"Oziq-ovqat",verbs:"Fe'llar",adjectives:"Sifatlar",travel:"Sayohat",work:"Ish",health:"Sog'liq",nature:"Tabiat",time:"Vaqt",emotions:"His-tuyg'ular",shopping:"Xarid"};
+  const catNames = {general:"Umumiy",greeting:"Salomlashish",numbers:"Raqamlar",colors:"Ranglar",family:"Oila",food:"Oziq-ovqat",verbs:"Fe'llar",adjectives:"Sifatlar",travel:"Sayohat",work:"Ish",health:"Sog'liq",nature:"Tabiat",time:"Vaqt",emotions:"His-tuyg'ular",shopping:"Xarid",introduction:"🤝 Tanishish"};
   const opts = cats.map(c=>`<option value="${c}"${c===cur?" selected":""}>${catNames[c]||c}</option>`).join("");
   sel.innerHTML=`<option value="">Barcha kategoriyalar</option>${opts}`;
 }
@@ -647,6 +647,7 @@ async function renderGrammarSteps(){
     {key:"adjectives",label:"Sifatlar",icon:"🎨"},
     {key:"verbs",label:"Fe'llar",icon:"⚡"},
     {key:"cases",label:"Kelshiklar",icon:"📐"},
+    {key:"introduction",label:"Tanishish",icon:"🤝"},
   ];
   track.innerHTML=steps.map((s,i)=>{
     const count=all.filter(r=>r.category===s.key).length;
@@ -1617,7 +1618,7 @@ const CAT_META = {
   nature:     { icon:"🌿", label:"Tabiat",         desc:"O'simlik va hayvon" },
   time:       { icon:"⏰", label:"Vaqt",           desc:"Soat va kun" },
   emotions:   { icon:"😊", label:"His-tuyg'ular",  desc:"Kayfiyat va his" },
-  general:    { icon:"📦", label:"Umumiy",         desc:"Boshqa so'zlar" },
+  introduction: { icon:"🤝", label:"Tanishish",     desc:"O'zini tanishtirish" },
 };
 
 async function loadCategoryPanel(){

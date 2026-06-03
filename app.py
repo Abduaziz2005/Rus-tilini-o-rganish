@@ -296,13 +296,23 @@ class Database:
             self._insert_grammar_rules()
         # Grammatika qoidalarini yangilash (yangi bosqichlar qo'shilsa)
         gr_cnt = self.conn.execute("SELECT COUNT(*) as c FROM grammar_rules").fetchone()["c"]
-        if gr_cnt < 14:
+        if gr_cnt < 17:
             self._insert_grammar_rules()
         # Raqamlar to'liq ro'yxati (agar yo'q bo'lsa)
         num_cnt = self.conn.execute(
             "SELECT COUNT(*) as c FROM words WHERE category='numbers'").fetchone()["c"]
         if num_cnt < 30:
             self._insert_numbers_words()
+        # Tanishish so'zlari (agar yo'q bo'lsa)
+        intro_cnt = self.conn.execute(
+            "SELECT COUNT(*) as c FROM words WHERE category='introduction'").fetchone()["c"]
+        if intro_cnt < 20:
+            self._insert_introduction_words()
+        # Tanishish grammatikasi (agar yo'q bo'lsa)
+        intro_gr = self.conn.execute(
+            "SELECT COUNT(*) as c FROM grammar_rules WHERE category='introduction'").fetchone()["c"]
+        if intro_gr < 3:
+            self._insert_introduction_grammar()
 
     def _insert_starter_words(self):
         words = [
@@ -497,6 +507,229 @@ class Database:
             self.conn.execute("""INSERT OR IGNORE INTO words
                 (russian,uzbek,pronunciation,category,level,example_ru,example_uz)
                 VALUES(?,?,?,?,?,?,?)""", w)
+        self.conn.commit()
+
+    def _insert_introduction_words(self):
+        """O'zini tanishtirish uchun 50 ta so'z"""
+        words = [
+            # ── Asosiy tanishish iboralari ──────────────────────────────────
+            ("Меня зовут",   "Mening ismim",       "MYE-nya ZO-voot",    "introduction","beginner",
+             "Меня зовут Алишер.",                 "Mening ismim Alisher."),
+            ("Как вас зовут?","Sizning ismingiz?",  "kak vas ZO-voot",    "introduction","beginner",
+             "Как вас зовут? — Меня зовут Анна.",  "Ismingiz nima? — Mening ismim Anna."),
+            ("Приятно познакомиться","Tanishganimdan xursandman","pree-YAT-na paz-na-KO-mee-tsya","introduction","beginner",
+             "Очень приятно познакомиться!",        "Tanishganimdan juda xursandman!"),
+            ("Рад(а) познакомиться","Tanishgandan xursand","rat paz-na-KO-mee-tsya","introduction","beginner",
+             "Рад познакомиться с вами.",           "Siz bilan tanishganimdan xursandman."),
+            ("Откуда вы?",   "Qayerdansiz?",       "at-KOO-da vy",       "introduction","beginner",
+             "Откуда вы? — Я из Узбекистана.",     "Qayerdansiz? — Men O'zbekistondan."),
+            ("Я из ...",     "Men ... dan",        "ya eez",             "introduction","beginner",
+             "Я из Ташкента.",                     "Men Toshkentdan."),
+            ("Где вы живёте?","Qayerda yashaysiz?","gdye vy zhee-VYO-tye","introduction","beginner",
+             "Где вы живёте? — В Ташкенте.",       "Qayerda yashaysiz? — Toshkentda."),
+            ("Я живу в ...", "Men ... da yashayman","ya zhee-VOO v",     "introduction","beginner",
+             "Я живу в Самарканде.",               "Men Samarqandda yashayman."),
+            ("Сколько вам лет?","Yoshingiz necha?","SKOL'-ka vam lyet",  "introduction","beginner",
+             "Сколько вам лет? — Мне 25 лет.",     "Yoshingiz necha? — Menga 25 yosh."),
+            ("Мне ... лет",  "Menga ... yosh",     "mnye ... lyet",      "introduction","beginner",
+             "Мне двадцать два года.",             "Menga yigirma ikki yosh."),
+            # ── Kasb va ta'lim ──────────────────────────────────────────────
+            ("Кем вы работаете?","Qayerda ishlaysiz?","kyem vy ra-BO-ta-ye-tye","introduction","beginner",
+             "Кем вы работаете? — Я учитель.",     "Nima ishlaysiz? — Men o'qituvchiman."),
+            ("Я работаю ...", "Men ... da ishlayman","ya ra-BO-ta-yu",   "introduction","beginner",
+             "Я работаю в школе.",                 "Men maktabda ishlayman."),
+            ("Я студент",    "Men talabaman",       "ya stoo-DYENT",      "introduction","beginner",
+             "Я студент университета.",            "Men universitet talabasi."),
+            ("Я учусь в ...", "Men ... da o'qiyman","ya oo-CHOOS' v",    "introduction","beginner",
+             "Я учусь в университете.",            "Men universitetda o'qiyman."),
+            ("Я учитель",    "Men o'qituvchiman",   "ya oo-CHEE-tyel'",   "introduction","beginner",
+             "Я учитель русского языка.",          "Men rus tili o'qituvchisiman."),
+            ("Я врач",       "Men shifokorman",     "ya vrach",           "introduction","beginner",
+             "Я работаю врачом.",                  "Men shifokor bo'lib ishlayman."),
+            ("Я инженер",    "Men muhandisман",     "ya een-zhe-NYER",    "introduction","beginner",
+             "Я инженер-программист.",             "Men dasturchi muhandisман."),
+            ("Профессия",    "Kasb",               "pra-FYE-see-ya",     "introduction","beginner",
+             "Какая у вас профессия?",             "Sizning kasbingiz nima?"),
+            ("Специальность","Mutaxassislik",      "spye-tsee-AL'-nast'","introduction","intermediate",
+             "Моя специальность — экономика.",    "Mening mutaxassisligim — iqtisodiyot."),
+            ("Образование",  "Ta'lim/ma'lumot",   "ab-ra-za-VA-niy-ye", "introduction","intermediate",
+             "У меня высшее образование.",        "Menda oliy ma'lumot bor."),
+            # ── Oilaviy holat ───────────────────────────────────────────────
+            ("Женат / Замужем","Uylanganman/Turmushga chiqqanman","zhe-NAT / ZA-moo-zhem","introduction","intermediate",
+             "Я женат. — Я замужем.",             "Uylanganman. — Turmushga chiqqanman."),
+            ("Холост / Не замужем","Uylanganum yo'q","KHO-last / nye ZA-moo-zhem","introduction","intermediate",
+             "Я ещё холост.",                     "Men hali uylanganum yo'q."),
+            ("У меня есть дети","Mening bolalarim bor","oo mye-NYA yest' DYE-tee","introduction","intermediate",
+             "У меня есть сын и дочь.",           "Menda o'g'il va qiz bor."),
+            ("Сын",          "O'g'il",             "syn",                "introduction","beginner",
+             "Мой сын учится в школе.",           "Mening o'g'lim maktabda o'qiydi."),
+            ("Дочь",         "Qiz (farzand)",      "doch'",              "introduction","beginner",
+             "Моей дочери пять лет.",             "Qizimga besh yosh."),
+            # ── Til bilish ──────────────────────────────────────────────────
+            ("Вы говорите по-русски?","Rus tilida gapirасизми?","vy ga-va-REE-tye pa-ROOS-kee","introduction","beginner",
+             "Вы говорите по-русски?",            "Rus tilida gapirасизми?"),
+            ("Я говорю по-русски немного","Rus tilida ozgina gapiraman","ya ga-va-RYOO pa-ROOS-kee nee-MNO-ga","introduction","beginner",
+             "Я говорю по-русски немного.",       "Men rus tilida ozgina gapiraman."),
+            ("Я учу русский язык","Men rus tilini o'rganаман","ya oo-CHOO ROOS-keey ya-ZYK","introduction","beginner",
+             "Я учу русский язык уже год.",       "Men rus tilini bir yildan beri o'rganаман."),
+            ("Я не понимаю","Men tushunmаман",    "ya nye pa-nee-MA-yu","introduction","beginner",
+             "Извините, я не понимаю.",           "Kechirasiz, men tushunmаман."),
+            ("Повторите, пожалуйста","Iltimos, takrorlang","paf-ta-REE-tye pa-ZHA-lus-ta","introduction","beginner",
+             "Повторите, пожалуйста, медленнее.", "Iltimos, sekinroq takrorlang."),
+            # ── Qiziqishlar ─────────────────────────────────────────────────
+            ("Хобби",        "Sevimli mashg'ulot",  "KHO-bee",            "introduction","intermediate",
+             "Какое у вас хобби?",                "Sizning xobbingiz nima?"),
+            ("Мне нравится","Menga yoqadi",        "mnye NRA-vee-tsya",  "introduction","beginner",
+             "Мне нравится читать книги.",        "Menga kitob o'qish yoqadi."),
+            ("Я люблю",      "Men ... ni yaxshi ko'raman","ya lyoob-LYOO","introduction","beginner",
+             "Я люблю слушать музыку.",           "Men musiqa tinglashni yaxshi ko'raman."),
+            ("Я занимаюсь спортом","Men sport bilan shug'ullanaman","ya za-nee-MA-yoos' SPOR-tam","introduction","intermediate",
+             "Я занимаюсь футболом.",             "Men futbol bilan shug'ullanaman."),
+            ("Свободное время","Bo'sh vaqt",       "svа-BOD-na-ye VRE-mya","introduction","intermediate",
+             "В свободное время я читаю.",        "Bo'sh vaqtimda kitob o'qiyman."),
+            # ── Tashqi ko'rinish va xarakter ───────────────────────────────
+            ("Высокий / Низкий","Baland/past bo'yli","vy-SO-keey / NEES-keey","introduction","intermediate",
+             "Он высокий и стройный.",            "U baland bo'yli va kelishgan."),
+            ("Волосы",       "Soch",               "VO-la-sy",           "introduction","beginner",
+             "У меня тёмные волосы.",             "Mening sochlam qora."),
+            ("Глаза",        "Ko'zlar",            "gla-ZA",             "introduction","beginner",
+             "У неё синие глаза.",                "Uning ko'zlari ko'k."),
+            ("Характер",     "Xarakter",           "kha-RAK-tyer",       "introduction","intermediate",
+             "У него хороший характер.",          "Uning xarakteri yaxshi."),
+            ("Добрый",       "Mehribon",           "DOB-riy",            "introduction","beginner",
+             "Она очень добрая.",                 "U juda mehribon."),
+            # ── Foydali ibotalar ────────────────────────────────────────────
+            ("Разрешите представиться","Tanishamiz, ruxsat eting","raz-rye-SHEE-tye pred-STA-vee-tsya","introduction","intermediate",
+             "Разрешите представиться — меня зовут Камол.", "Tanishamiz — mening ismim Kamol."),
+            ("Давайте познакомимся","Keling, tanishamiz","da-VAY-tye paz-na-KO-meem-sya","introduction","intermediate",
+             "Давайте познакомимся!",             "Keling, tanishamiz!"),
+            ("Очень рад(а) вас видеть","Sizni ko'rganimdan xursandman","O-chen' rat vas VEE-dyet'","introduction","intermediate",
+             "Очень рад вас снова видеть!",       "Sizni qayta ko'rganimdan xursandman!"),
+            ("До свидания",  "Xayr (rasmiy)",      "da svee-DA-nee-ya",  "introduction","beginner",
+             "До свидания, до встречи!",          "Xayr, ko'rishguncha!"),
+            ("До встречи",   "Ko'rishguncha",      "da VSTRE-chee",      "introduction","beginner",
+             "До встречи завтра!",                "Ertaga ko'rishguncha!"),
+            ("Пока",         "Xayr (norasmiy)",    "pa-KA",              "introduction","beginner",
+             "Пока, увидимся!",                   "Xayr, ko'rishamiz!"),
+            ("Как дела?",    "Qanday ishlar?",     "kak dee-LA",         "introduction","beginner",
+             "Привет! Как дела? — Всё хорошо.",  "Salom! Qanday ishlar? — Hammasi yaxshi."),
+            ("Всё хорошо",   "Hammasi yaxshi",     "fsyo kha-ra-SHO",    "introduction","beginner",
+             "У меня всё хорошо, спасибо!",      "Menda hammasi yaxshi, rahmat!"),
+            ("Неплохо",      "Yomon emas",         "nye-PLO-kha",        "introduction","beginner",
+             "Как дела? — Неплохо, спасибо.",     "Qanday ishlar? — Yomon emas, rahmat."),
+            ("Нормально",    "Normal/Oddiy",       "nar-MAL'-na",        "introduction","beginner",
+             "Как ты? — Нормально.",              "Qandaysan? — Normal."),
+            ("Возраст",      "Yosh (ot)",          "VOZ-rast",           "introduction","intermediate",
+             "Какой у вас возраст?",              "Yoshingiz necha?"),
+            ("Имя",          "Ism",                "EE-mya",             "introduction","beginner",
+             "Как ваше имя?",                     "Ismingiz nima?"),
+            ("Фамилия",      "Familiya",           "fa-MEE-lee-ya",      "introduction","beginner",
+             "Как ваша фамилия?",                 "Familiyangiz nima?"),
+        ]
+        for w in words:
+            self.conn.execute("""INSERT OR IGNORE INTO words
+                (russian,uzbek,pronunciation,category,level,example_ru,example_uz)
+                VALUES(?,?,?,?,?,?,?)""", w)
+        self.conn.commit()
+
+    def _insert_introduction_grammar(self):
+        """O'zini tanishtirish grammatika qoidalari"""
+        rules = [
+            ("Tanishish: Меня зовут — Ismni aytish", "beginner", "introduction",
+             "O'zini tanishtirish uchun eng muhim 3 ta qurilma:\n\n"
+             "1. МЕНЯ ЗОВУТ ... — Mening ismim ...\n"
+             "   Меня зовут Алишер. — Mening ismim Alisher.\n"
+             "   Меня зовут Малика. — Mening ismim Malika.\n\n"
+             "2. КАК ВАС ЗОВУТ? — Sizning ismingiz nima?\n"
+             "   (norasmiy: КАК ТЕБЯ ЗОВУТ? — Sening ism nima?)\n\n"
+             "3. ПРИЯТНО ПОЗНАКОМИТЬСЯ — Tanishganimdan xursandman\n"
+             "   (qisqa: ОЧЕНЬ ПРИЯТНО — Juda xursandman)\n\n"
+             "NAMUNA DIALOG:\n"
+             "  — Здравствуйте! Меня зовут Камол. А вас?\n"
+             "  — Очень приятно! Меня зовут Анна.",
+             json.dumps([
+                 {"ru": "Меня зовут Алишер. — Mening ismim Alisher.", "uz": "Меня зовут = mening ismim"},
+                 {"ru": "Как вас зовут? — Как тебя зовут?", "uz": "вас (rasmiy) / тебя (norasmiy)"},
+                 {"ru": "Очень приятно познакомиться!", "uz": "Juda xursandman tanishganimdan!"},
+                 {"ru": "Давайте познакомимся! — Keling, tanishamiz!", "uz": "Давайте = keling (taklif)"},
+             ]),
+             json.dumps([
+                 {"q": "'Mening ismim Kamol' ruscha qanday?", "a": "Меня зовут Камол", "type": "choice",
+                  "options": ["Я есть Камол", "Меня зовут Камол", "Мне зовут Камол", "Я Камол зовут"]},
+                 {"q": "Rasmiy tanishishda qaysi so'z ishlatiladi?", "a": "Как вас зовут?", "type": "choice",
+                  "options": ["Как тебя зовут?", "Как вас зовут?", "Кто ты?", "Как ты?"]},
+                 {"q": "'Tanishganimdan xursandman' ruscha?", "a": "Приятно познакомиться", "type": "choice",
+                  "options": ["Приятно познакомиться", "До свидания", "Как дела?", "Пожалуйста"]},
+             ])
+            ),
+            ("Tanishish: Qayerdan va qancha yoshda", "beginner", "introduction",
+             "O'zini to'liq tanishtirish uchun muhim savollar:\n\n"
+             "YOSH:\n"
+             "  Сколько вам лет? — Yoshingiz necha?\n"
+             "  Мне 20 лет.      — Menga 20 yosh.\n"
+             "  Мне 21 год.      — Menga 21 yosh.\n"
+             "  ⚠ Qoida: 1 → лет emas ГОД, 2-4 → ГОДА, 5+ → ЛЕТ\n\n"
+             "QAYERDAN:\n"
+             "  Откуда вы? — Qayerdansiz?\n"
+             "  Я из Узбекистана. — Men O'zbekistondan.\n"
+             "  Я из Ташкента.    — Men Toshkentdan.\n\n"
+             "QAYERDA YASHASH:\n"
+             "  Где вы живёте? — Qayerda yashaysiz?\n"
+             "  Я живу в Ташкенте. — Men Toshkentda yashayman.\n"
+             "  Я живу в Узбекистане. — Men O'zbekistonda yashayman.",
+             json.dumps([
+                 {"ru": "Мне 25 лет. — Menga 25 yosh.", "uz": "5+ yoshda: ЛЕТ"},
+                 {"ru": "Мне 21 год. — Menga 21 yosh.", "uz": "1 da: ГОД"},
+                 {"ru": "Я из Самарканда. — Men Samarqanddan.", "uz": "ИЗ + shahar nomi"},
+                 {"ru": "Я живу в Бухаре. — Men Buxoroda yashayman.", "uz": "В + O'rin-payt kelshigi"},
+             ]),
+             json.dumps([
+                 {"q": "'Menga 5 yosh' ruscha qanday?", "a": "Мне пять лет", "type": "choice",
+                  "options": ["Мне пять год", "Мне пять года", "Мне пять лет", "Я пять лет"]},
+                 {"q": "'Men Toshkentdan' qanday?", "a": "Я из Ташкента", "type": "choice",
+                  "options": ["Я в Ташкенте", "Я из Ташкента", "Я Ташкент", "Я от Ташкента"]},
+                 {"q": "'Qayerda yashaysiz?' ruscha?", "a": "Где вы живёте?", "type": "choice",
+                  "options": ["Откуда вы?", "Где вы живёте?", "Кто вы?", "Что вы делаете?"]},
+                 {"q": "'Men Samarqandda yashayman' ruscha?", "a": "Я живу в Самарканде", "type": "choice",
+                  "options": ["Я живу Самарканд", "Я из Самарканда", "Я живу в Самарканде", "Я есть Самарканд"]},
+             ])
+            ),
+            ("Tanishish: To'liq o'z-o'zini taqdim etish", "intermediate", "introduction",
+             "To'liq tanishish dialogi — barcha qismlarni birlashtirish:\n\n"
+             "NAMUNA MONOLOG:\n"
+             "  Здравствуйте! Разрешите представиться.\n"
+             "  Меня зовут Алишер Каримов.\n"
+             "  Мне двадцать три года.\n"
+             "  Я из Узбекистана, живу в Ташкенте.\n"
+             "  Я студент, учусь в университете.\n"
+             "  Моя специальность — информационные технологии.\n"
+             "  Я учу русский язык уже шесть месяцев.\n"
+             "  Мне нравится читать книги и слушать музыку.\n"
+             "  Приятно познакомиться!\n\n"
+             "FOYDALI IBORALAR:\n"
+             "  Разрешите представиться — Ruxsat eting, tanishamiz\n"
+             "  Я хочу рассказать о себе — O'zim haqimda gapirmoqchiman\n"
+             "  Если не секрет... — Agar sir bo'lmasa...",
+             json.dumps([
+                 {"ru": "Разрешите представиться. Меня зовут ...", "uz": "Rasmiy taqdim etish boshlang'ichi"},
+                 {"ru": "Мне нравится читать. — Menga o'qish yoqadi.", "uz": "МНЕ НРАВИТСЯ + infinitiv"},
+                 {"ru": "Я занимаюсь спортом. — Men sport bilan shug'ullanaman.", "uz": "заниматься + tvsdk"},
+                 {"ru": "В свободное время я... — Bo'sh vaqtimda men...", "uz": "Qiziqishlarni aytish"},
+             ]),
+             json.dumps([
+                 {"q": "Rasmiy taqdim etish so'zi?", "a": "Разрешите представиться", "type": "choice",
+                  "options": ["Привет!", "Разрешите представиться", "Пока!", "Как дела?"]},
+                 {"q": "'Menga kitob o'qish yoqadi' ruscha?", "a": "Мне нравится читать книги", "type": "choice",
+                  "options": ["Я люблю читает книги", "Мне нравится читать книги", "Мне нравится читаю", "Я хочу книги"]},
+                 {"q": "'Men 23 yoshdaman' ruscha?", "a": "Мне двадцать три года", "type": "choice",
+                  "options": ["Я двадцать три год", "Мне двадцать три года", "Мне двадцать три лет", "Я имею 23"]},
+             ])
+            ),
+        ]
+        for r in rules:
+            self.conn.execute("""INSERT OR IGNORE INTO grammar_rules
+                (title,level,category,content,examples_json,exercises_json)
+                VALUES(?,?,?,?,?,?)""", r)
         self.conn.commit()
 
     def _insert_numbers_words(self):
