@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="uz" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>🔐 RusLearn Pro — Kirish</title>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;600;800&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Inter',sans-serif;background:#0d0f14;color:#e8ecf4;min-height:100vh;display:flex;align-items:center;justify-content:center;}
+.login-box{background:#1e2230;border:1px solid #2a2f40;border-radius:16px;padding:40px;width:100%;max-width:400px;text-align:center;}
+.login-logo{font-size:56px;margin-bottom:12px;}
+.login-title{font-family:'Unbounded',sans-serif;font-size:22px;font-weight:800;color:#4f8ef7;margin-bottom:4px;}
+.login-sub{font-size:13px;color:#9ba3b8;margin-bottom:28px;}
+.form-input{width:100%;background:#13161e;border:1px solid #2a2f40;border-radius:8px;color:#e8ecf4;padding:12px 16px;font-size:15px;font-family:'Inter',sans-serif;outline:none;margin-bottom:14px;}
+.form-input:focus{border-color:#4f8ef7;}
+.btn-login{width:100%;padding:12px;background:#4f8ef7;border:none;border-radius:8px;color:white;font-family:'Unbounded',sans-serif;font-size:14px;font-weight:600;cursor:pointer;transition:background .15s;}
+.btn-login:hover{background:#3a6fd4;}
+.error-msg{color:#f05060;font-size:13px;margin-top:10px;display:none;}
+</style>
+</head>
+<body>
+<div class="login-box">
+  <div class="login-logo">🇷🇺</div>
+  <div class="login-title">RusLearn Pro</div>
+  <div class="login-sub">Kirish uchun parolni kiriting</div>
+  <input type="password" id="pwdInput" class="form-input" placeholder="Parol..." onkeydown="if(event.key==='Enter')doLogin()">
+  <button class="btn-login" onclick="doLogin()">🔓 Kirish</button>
+  <div class="error-msg" id="errMsg">❌ Noto'g'ri parol!</div>
+</div>
+<script>
+async function doLogin(){
+  const pwd = document.getElementById('pwdInput').value;
+  const r = await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:pwd})});
+  if(r.ok){ window.location='/'; }
+  else { document.getElementById('errMsg').style.display='block'; }
+}
+</script>
+</body>
+</html>

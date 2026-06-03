@@ -1,0 +1,740 @@
+<!DOCTYPE html>
+<html lang="uz" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>🇷🇺 RusLearn Pro — Rus tilini o'rganish</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;600;800&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+<div id="app">
+
+<!-- ══════════ SIDEBAR ══════════ -->
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-brand">
+    <div class="brand-flag">🇷🇺</div>
+    <div class="brand-text">
+      <div class="brand-name">RusLearn</div>
+      <div class="brand-sub">Pro v1.0</div>
+    </div>
+  </div>
+
+  <!-- Streak & XP -->
+  <div class="profile-mini" id="profileMini">
+    <div class="profile-avatar" id="profileAvatar">О</div>
+    <div class="profile-info">
+      <div class="profile-name" id="profileName">O'quvchi</div>
+      <div class="profile-xp"><span id="profileXP">0</span> XP · 🔥 <span id="profileStreak">0</span></div>
+    </div>
+  </div>
+
+  <nav class="nav">
+    <div class="nav-group-label">ASOSIY</div>
+    <button class="nav-item active" data-page="home">
+      <span class="nav-icon">🏠</span><span>Bosh sahifa</span></button>
+    <button class="nav-item" data-page="vocabulary">
+      <span class="nav-icon">📖</span><span>Lug'at</span></button>
+    <button class="nav-item" data-page="flashcards">
+      <span class="nav-icon">🃏</span><span>Kartochkalar</span></button>
+    <button class="nav-item" data-page="grammar">
+      <span class="nav-icon">📝</span><span>Grammatika</span></button>
+
+    <div class="nav-group-label">O'YINLAR</div>
+    <button class="nav-item" data-page="games">
+      <span class="nav-icon">🎮</span><span>O'yinlar</span></button>
+    <button class="nav-item" data-page="quiz">
+      <span class="nav-icon">❓</span><span>Viktorina</span></button>
+
+    <div class="nav-group-label">MASHQ</div>
+    <button class="nav-item" data-page="chat">
+      <span class="nav-icon">🤖</span><span>AI Suhbat</span></button>
+    <button class="nav-item" data-page="schedule">
+      <span class="nav-icon">📅</span><span>Jadval</span>
+      <span id="missedBadge" class="badge-red" style="display:none">!</span></button>
+    <button class="nav-item" data-page="progress">
+      <span class="nav-icon">📊</span><span>Yutuqlar</span></button>
+
+    <div class="nav-group-label">SOZLAMALAR</div>
+    <button class="nav-item" data-page="settings">
+      <span class="nav-icon">⚙</span><span>Sozlamalar</span></button>
+  </nav>
+
+  <!-- Internet toggle -->
+  <div class="sidebar-footer">
+    <button class="net-toggle-btn" id="netToggleBtn" onclick="toggleInternet()">
+      <span id="netIcon">🌐</span>
+      <span id="netLabel">Internet: ON</span>
+    </button>
+  </div>
+</aside>
+
+<!-- ══════════ MAIN CONTENT ══════════ -->
+<main class="main" id="mainContent">
+
+<!-- ── HOME PAGE ── -->
+<section class="page active" id="page-home">
+  <div class="page-header">
+    <h1>Xush kelibsiz! 👋</h1>
+    <div class="header-actions">
+      <button class="btn btn-ghost" onclick="openNotifTest()">🔔 Test xabarnoma</button>
+    </div>
+  </div>
+
+  <!-- Stats cards -->
+  <div class="stats-row" id="homeStats"></div>
+
+  <!-- Daily goal -->
+  <div class="daily-goal-card" id="dailyGoalCard">
+    <div class="dg-title">🎯 Bugungi maqsad</div>
+    <div class="dg-bar-wrap">
+      <div class="dg-bar" id="dailyGoalBar"></div>
+    </div>
+    <div class="dg-label" id="dailyGoalLabel">0 / 30 daqiqa</div>
+  </div>
+
+  <div class="home-grid">
+    <!-- Continue learning -->
+    <div class="home-card card-accent">
+      <h3>⏯ Davom eting</h3>
+      <div id="continueSection">
+        <p class="muted">Bugungi dars yo'q.</p>
+      </div>
+    </div>
+
+    <!-- Due reviews -->
+    <div class="home-card">
+      <h3>🔁 Takrorlash vaqti</h3>
+      <div id="dueReviewSection">
+        <p class="muted">Yuklanmoqda...</p>
+      </div>
+    </div>
+
+    <!-- Upcoming schedule -->
+    <div class="home-card">
+      <h3>📅 Kelgusi darslar</h3>
+      <div id="upcomingSection">
+        <p class="muted">Yuklanmoqda...</p>
+      </div>
+    </div>
+
+    <!-- Quick actions -->
+    <div class="home-card">
+      <h3>⚡ Tez boshlash</h3>
+      <div class="quick-btns">
+        <button class="qbtn" onclick="navigate('flashcards')">🃏 Kartochkalar</button>
+        <button class="qbtn" onclick="navigate('quiz')">❓ Test</button>
+        <button class="qbtn" onclick="navigate('games')">🎮 O'yin</button>
+        <button class="qbtn" onclick="navigate('chat')">🤖 AI Suhbat</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Missed lessons -->
+  <div id="missedSection" style="display:none">
+    <h3 style="color:var(--red);margin-bottom:12px">⚠️ O'tkazib yuborilgan darslar</h3>
+    <div id="missedList"></div>
+  </div>
+</section>
+
+<!-- ── VOCABULARY PAGE ── -->
+<section class="page" id="page-vocabulary">
+  <div class="page-header">
+    <h1>📖 Lug'at</h1>
+    <div class="header-actions">
+      <button class="btn btn-primary" onclick="openAddWordModal()">➕ So'z qo'shish</button>
+      <button class="btn btn-ghost" onclick="openAIFetchModal()">🤖 AI dan yuklash</button>
+    </div>
+  </div>
+
+  <div class="filter-bar">
+    <input type="text" id="wordSearch" class="filter-input" placeholder="🔍 Qidirish (rus/o'zbek)..."
+           oninput="debounceWordSearch()">
+    <select id="wordLevelFilter" class="filter-select" onchange="loadVocabulary()">
+      <option value="">Barcha darajalar</option>
+      <option value="beginner">🟢 Boshlang'ich</option>
+      <option value="intermediate">🟡 O'rta</option>
+      <option value="advanced">🔴 Yuqori</option>
+    </select>
+    <select id="wordCatFilter" class="filter-select" onchange="loadVocabulary()">
+      <option value="">Barcha kategoriyalar</option>
+    </select>
+    <button class="btn btn-sm" onclick="loadVocabulary()">🔄</button>
+  </div>
+
+  <div id="wordCount" class="word-count-bar"></div>
+  <div id="wordGrid" class="word-grid"></div>
+  <div class="pagination" id="wordPagination"></div>
+</section>
+
+<!-- ── FLASHCARDS PAGE ── -->
+<section class="page" id="page-flashcards">
+  <div class="page-header">
+    <h1>🃏 Kartochkalar (Spaced Repetition)</h1>
+  </div>
+
+  <div class="flashcard-controls">
+    <select id="fcLevel" class="filter-select">
+      <option value="">Barcha darajalar</option>
+      <option value="beginner">🟢 Boshlang'ich</option>
+      <option value="intermediate">🟡 O'rta</option>
+    </select>
+    <label class="toggle-wrap">
+      <input type="checkbox" id="fcDueOnly" checked>
+      <span>Faqat takrorlash vaqti keladigan</span>
+    </label>
+    <button class="btn btn-primary" onclick="startFlashcards()">▶ Boshlash</button>
+  </div>
+
+  <!-- Flashcard area -->
+  <div id="flashcardArea" style="display:none">
+    <div class="fc-progress">
+      <div class="fc-prog-bar"><div class="fc-prog-fill" id="fcProgFill"></div></div>
+      <span id="fcProgLabel">0 / 0</span>
+    </div>
+
+    <div class="flashcard" id="flashcard" onclick="flipCard()">
+      <div class="fc-inner" id="fcInner">
+        <div class="fc-front">
+          <div class="fc-word" id="fcWord">-</div>
+          <div class="fc-hint" id="fcHint">Bosib turing — tarjimani ko'ring</div>
+          <div class="fc-pronunciation" id="fcPron"></div>
+        </div>
+        <div class="fc-back">
+          <div class="fc-translation" id="fcTranslation">-</div>
+          <div class="fc-example" id="fcExample"></div>
+          <div class="fc-example-uz" id="fcExampleUz"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="fc-buttons" id="fcButtons" style="display:none">
+      <button class="fc-btn fc-wrong" onclick="answerCard(false)">❌ Bilmadim</button>
+      <button class="fc-btn fc-correct" onclick="answerCard(true)">✅ Bildim</button>
+    </div>
+
+    <div class="fc-nav">
+      <button class="btn btn-ghost btn-sm" onclick="fcSkip()">⏭ O'tkazish</button>
+      <button class="btn btn-ghost btn-sm" onclick="stopFlashcards()">⏹ Tugatish</button>
+    </div>
+  </div>
+
+  <div id="fcResult" style="display:none" class="fc-result">
+    <div class="result-emoji">🎉</div>
+    <h2>Sessiya tugadi!</h2>
+    <div id="fcResultStats"></div>
+    <button class="btn btn-primary" onclick="startFlashcards()">🔄 Yana</button>
+    <button class="btn btn-ghost" onclick="navigate('home')">🏠 Bosh sahifaga</button>
+  </div>
+</section>
+
+<!-- ── GRAMMAR PAGE ── -->
+<section class="page" id="page-grammar">
+  <div class="page-header">
+    <h1>📝 Grammatika</h1>
+    <div class="header-actions">
+      <button class="btn btn-ghost" onclick="openAIGrammarModal()">🤖 AI tushuntirsin</button>
+    </div>
+  </div>
+
+  <div class="grammar-tabs">
+    <button class="g-tab active" onclick="filterGrammar('all',this)">Hammasi</button>
+    <button class="g-tab" onclick="filterGrammar('beginner',this)">🟢 Boshlang'ich</button>
+    <button class="g-tab" onclick="filterGrammar('intermediate',this)">🟡 O'rta</button>
+    <button class="g-tab" onclick="filterGrammar('advanced',this)">🔴 Yuqori</button>
+  </div>
+
+  <div id="grammarList" class="grammar-list"></div>
+</section>
+
+<!-- ── GAMES PAGE ── -->
+<section class="page" id="page-games">
+  <div class="page-header"><h1>🎮 O'yinlar</h1></div>
+
+  <div class="games-grid">
+    <!-- Word Match -->
+    <div class="game-card" onclick="startGame('match')">
+      <div class="game-icon">🔗</div>
+      <div class="game-title">So'z Moslashtirish</div>
+      <div class="game-desc">Rus so'zlarini o'zbek tarjimalari bilan bog'lang</div>
+      <div class="game-meta"><span id="matchHS">—</span> eng yuqori</div>
+    </div>
+    <!-- Word Scramble -->
+    <div class="game-card" onclick="startGame('scramble')">
+      <div class="game-icon">🔀</div>
+      <div class="game-title">Harflarni Joylashtir</div>
+      <div class="game-desc">Aralashtirilgan harflardan so'z hosil qiling</div>
+      <div class="game-meta"><span id="scrambleHS">—</span> eng yuqori</div>
+    </div>
+    <!-- Typing Race -->
+    <div class="game-card" onclick="startGame('typing')">
+      <div class="game-icon">⌨️</div>
+      <div class="game-title">Yozuv Poygasi</div>
+      <div class="game-desc">Tez va to'g'ri yozing — vaqtga qarshi!</div>
+      <div class="game-meta"><span id="typingHS">—</span> eng yuqori</div>
+    </div>
+    <!-- Fill in the blank -->
+    <div class="game-card" onclick="startGame('fill')">
+      <div class="game-icon">📝</div>
+      <div class="game-title">Bo'sh joyni to'ldiring</div>
+      <div class="game-desc">Jumlada tushirib qoldirilgan so'zni toping</div>
+      <div class="game-meta"><span id="fillHS">—</span> eng yuqori</div>
+    </div>
+  </div>
+
+  <!-- Active game area -->
+  <div id="gameArea" style="display:none" class="game-area">
+    <div class="game-header">
+      <span id="gameName" class="game-name-label"></span>
+      <span id="gameScore" class="score-badge">0 ball</span>
+      <span id="gameTimer" class="timer-badge">⏱ 60s</span>
+      <button class="btn btn-sm btn-ghost" onclick="stopGame()">⏹ Tugatish</button>
+    </div>
+    <div id="gameContent"></div>
+  </div>
+</section>
+
+<!-- ── QUIZ PAGE ── -->
+<section class="page" id="page-quiz">
+  <div class="page-header"><h1>❓ Viktorina</h1></div>
+
+  <div id="quizSetup" class="quiz-setup">
+    <div class="quiz-option-card">
+      <h3>📊 Daraja tanlang</h3>
+      <div class="quiz-options">
+        <label class="quiz-opt"><input type="radio" name="quizLevel" value="beginner" checked> 🟢 Boshlang'ich</label>
+        <label class="quiz-opt"><input type="radio" name="quizLevel" value="intermediate"> 🟡 O'rta</label>
+        <label class="quiz-opt"><input type="radio" name="quizLevel" value=""> Hammasi</label>
+      </div>
+    </div>
+    <div class="quiz-option-card">
+      <h3>🔢 Savollar soni</h3>
+      <div class="quiz-options">
+        <label class="quiz-opt"><input type="radio" name="quizCount" value="5"> 5 ta</label>
+        <label class="quiz-opt"><input type="radio" name="quizCount" value="10" checked> 10 ta</label>
+        <label class="quiz-opt"><input type="radio" name="quizCount" value="20"> 20 ta</label>
+      </div>
+    </div>
+    <div class="quiz-option-card">
+      <h3>🎯 Savol turi</h3>
+      <div class="quiz-options">
+        <label class="quiz-opt"><input type="radio" name="quizType" value="ru_to_uz" checked> Ruscha → O'zbek</label>
+        <label class="quiz-opt"><input type="radio" name="quizType" value="uz_to_ru"> O'zbekcha → Rus</label>
+        <label class="quiz-opt"><input type="radio" name="quizType" value="mixed"> Aralash</label>
+      </div>
+    </div>
+    <button class="btn btn-primary btn-lg" onclick="startQuiz()">▶ Testni boshlash</button>
+  </div>
+
+  <div id="quizPlay" style="display:none">
+    <div class="quiz-progress">
+      <div class="qp-bar"><div class="qp-fill" id="quizProgFill"></div></div>
+      <span id="quizProgLabel">1/10</span>
+      <span id="quizScoreLabel" class="score-badge">0</span>
+    </div>
+    <div class="quiz-card" id="quizCard">
+      <div class="quiz-question" id="quizQuestion"></div>
+      <div class="quiz-choices" id="quizChoices"></div>
+    </div>
+    <div id="quizFeedback" class="quiz-feedback" style="display:none"></div>
+  </div>
+
+  <div id="quizResult" style="display:none" class="quiz-result">
+    <div class="result-emoji" id="quizResultEmoji">🎉</div>
+    <h2>Test tugadi!</h2>
+    <div class="result-score" id="quizResultScore"></div>
+    <div id="quizResultDetails"></div>
+    <button class="btn btn-primary" onclick="startQuiz()">🔄 Qayta boshlash</button>
+    <button class="btn btn-ghost" onclick="document.getElementById('quizPlay').style.display='none';document.getElementById('quizResult').style.display='none';document.getElementById('quizSetup').style.display='block'">⚙ Sozlamalar</button>
+  </div>
+</section>
+
+<!-- ── CHAT PAGE ── -->
+<section class="page" id="page-chat">
+  <div class="page-header">
+    <h1>🤖 AI bilan Rus tilida Suhbat</h1>
+    <div class="header-actions">
+      <select id="chatLevelSel" class="filter-select" onchange="saveChatLevel()">
+        <option value="beginner">🟢 Boshlang'ich</option>
+        <option value="intermediate">🟡 O'rta</option>
+        <option value="advanced">🔴 Yuqori</option>
+      </select>
+      <button class="btn btn-ghost btn-sm" onclick="clearChat()">🗑 Tozalash</button>
+    </div>
+  </div>
+
+  <div class="chat-info-bar">
+    ℹ️ AI siz bilan rus tilida gaplashadi, xatolaringizni tuzatadi va o'zbek tiliga tarjima qiladi.
+  </div>
+
+  <div class="chat-messages" id="chatMessages">
+    <div class="chat-msg assistant">
+      <div class="msg-bubble">
+        Привет! Меня зовут Алекс, я ваш помощник по русскому языку! 😊<br>
+        <em style="color:var(--text-muted);font-size:13px">Salom! Mening ismim Alex, men sizning rus tili yordamchingizman!</em>
+      </div>
+    </div>
+  </div>
+
+  <div class="chat-input-area">
+    <input type="text" id="chatInput" class="chat-input"
+           placeholder="Rus tilida yozing... (Enter = yuborish)"
+           onkeydown="if(event.key==='Enter')sendChat()">
+    <button class="chat-send-btn" onclick="sendChat()">➤</button>
+  </div>
+</section>
+
+<!-- ── SCHEDULE PAGE ── -->
+<section class="page" id="page-schedule">
+  <div class="page-header">
+    <h1>📅 O'qish Jadvali</h1>
+    <div class="header-actions">
+      <button class="btn btn-primary" onclick="openAddLessonModal()">➕ Dars qo'shish</button>
+    </div>
+  </div>
+
+  <!-- Missed lessons warning -->
+  <div id="missedWarning" class="missed-warning" style="display:none">
+    <span>⚠️</span>
+    <div>
+      <strong>O'tkazib yuborilgan darslar!</strong>
+      <p id="missedWarningText"></p>
+    </div>
+  </div>
+
+  <!-- Upcoming lessons calendar-style -->
+  <div class="schedule-view">
+    <div class="schedule-header">
+      <h3>📆 Kelgusi darslar (14 kun)</h3>
+    </div>
+    <div id="scheduleList" class="schedule-list"></div>
+  </div>
+
+  <!-- All lessons -->
+  <div class="schedule-view" style="margin-top:24px">
+    <div class="schedule-header">
+      <h3>📋 Barcha darslar</h3>
+      <button class="btn btn-sm btn-ghost" onclick="loadAllLessons()">🔄</button>
+    </div>
+    <div id="allLessonsList"></div>
+  </div>
+</section>
+
+<!-- ── PROGRESS PAGE ── -->
+<section class="page" id="page-progress">
+  <div class="page-header"><h1>📊 Yutuqlar & Statistika</h1></div>
+
+  <!-- Level indicator -->
+  <div id="levelCard" class="level-card"></div>
+
+  <!-- Stats grid -->
+  <div class="stats-grid-full" id="fullStatsGrid"></div>
+
+  <!-- Study chart -->
+  <div class="chart-card">
+    <h3>📈 So'nggi 7 kunlik faollik</h3>
+    <canvas id="studyChart" height="120"></canvas>
+  </div>
+
+  <!-- Mastery breakdown -->
+  <div class="mastery-card">
+    <h3>🎯 So'z o'zlashtirilishi</h3>
+    <div id="masteryBreakdown"></div>
+  </div>
+
+  <!-- History table -->
+  <div class="history-card">
+    <h3>🕐 O'qish tarixi</h3>
+    <div id="historyTable"></div>
+  </div>
+</section>
+
+<!-- ── SETTINGS PAGE ── -->
+<section class="page" id="page-settings">
+  <div class="page-header"><h1>⚙ Sozlamalar</h1></div>
+
+  <div class="settings-grid">
+    <!-- Profile -->
+    <div class="settings-card">
+      <h3>👤 Profil</h3>
+      <div class="form-row">
+        <label>Ism</label>
+        <input type="text" id="sName" class="form-input">
+      </div>
+      <div class="form-row">
+        <label>Daraja</label>
+        <select id="sLevel" class="form-input">
+          <option value="beginner">🟢 Boshlang'ich</option>
+          <option value="intermediate">🟡 O'rta</option>
+          <option value="advanced">🔴 Yuqori</option>
+        </select>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="saveProfile()">💾 Saqlash</button>
+    </div>
+
+    <!-- Notifications -->
+    <div class="settings-card">
+      <h3>🔔 Xabarnomalar</h3>
+      <div class="form-row">
+        <label>Darsdan qancha oldin xabarnoma (daqiqa)</label>
+        <input type="number" id="sNotifMin" class="form-input" min="5" max="120" value="30">
+      </div>
+      <div class="form-row">
+        <label>Kunlik maqsad (daqiqa)</label>
+        <input type="number" id="sDailyGoal" class="form-input" min="10" max="120" value="30">
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="saveNotifSettings()">💾 Saqlash</button>
+      <button class="btn btn-ghost btn-sm" onclick="testNotif()">🔔 Test xabarnoma</button>
+    </div>
+
+    <!-- AI Settings -->
+    <div class="settings-card">
+      <h3>🤖 AI Sozlamalari</h3>
+      <div class="form-row">
+        <label>AI Suhbat darajasi</label>
+        <select id="sAiLevel" class="form-input">
+          <option value="beginner">🟢 Boshlang'ich (oddiy rus tili)</option>
+          <option value="intermediate">🟡 O'rta</option>
+          <option value="advanced">🔴 Yuqori (to'liq rus tili)</option>
+        </select>
+      </div>
+      <div class="ai-key-info">
+        <p>🔑 AI uchun ANTHROPIC_API_KEY kerak</p>
+        <code>set ANTHROPIC_API_KEY=sk-ant-...</code>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="saveAiSettings()">💾 Saqlash</button>
+    </div>
+
+    <!-- Internet -->
+    <div class="settings-card">
+      <h3>🌐 Internet Sozlamalari</h3>
+      <div class="internet-toggle-card">
+        <div class="it-info">
+          <div class="it-title">Internet ruxsati</div>
+          <div class="it-desc">O'chirsangiz, faqat yuklab olingan ma'lumotlar ishlaydi</div>
+        </div>
+        <button class="toggle-btn" id="internetToggleBtn" onclick="toggleInternet()">
+          <span id="internetToggleLabel">ON</span>
+        </button>
+      </div>
+      <div id="offlineStats" style="margin-top:12px"></div>
+    </div>
+
+    <!-- Download for offline -->
+    <div class="settings-card">
+      <h3>⬇ Offline Yuklamalar</h3>
+      <div id="downloadStats"></div>
+      <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-primary btn-sm" onclick="downloadAllContent()">⬇ Hammasini yuklash</button>
+      </div>
+    </div>
+
+    <!-- Security -->
+    <div class="settings-card">
+      <h3>🔐 Xavfsizlik</h3>
+      <div class="form-row">
+        <label>Yangi parol (bo'sh = parols)</label>
+        <input type="password" id="sPassword" class="form-input" placeholder="Yangi parol...">
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="savePassword()">💾 Parolni saqlash</button>
+    </div>
+  </div>
+</section>
+
+</main><!-- /main -->
+</div><!-- /app -->
+
+<!-- ════════════════ MODALS ════════════════ -->
+
+<!-- Add Word Modal -->
+<div id="addWordModal" class="modal" style="display:none">
+  <div class="modal-overlay" onclick="closeModal('addWordModal')"></div>
+  <div class="modal-content">
+    <button class="modal-close" onclick="closeModal('addWordModal')">✕</button>
+    <h2>➕ Yangi So'z</h2>
+    <div class="form-row"><label>Ruscha *</label>
+      <div style="display:flex;gap:8px">
+        <input type="text" id="awRu" class="form-input" placeholder="Ruscha so'z...">
+        <button class="btn btn-ghost btn-sm" onclick="aiTranslateWord()" title="AI bilan tarjima qiling">🤖</button>
+      </div>
+    </div>
+    <div class="form-row"><label>O'zbekcha *</label>
+      <input type="text" id="awUz" class="form-input" placeholder="O'zbek tarjimasi..."></div>
+    <div class="form-row"><label>Talaffuz</label>
+      <input type="text" id="awPron" class="form-input" placeholder="Transkripsiya..."></div>
+    <div class="form-row"><label>Misol (rus)</label>
+      <input type="text" id="awExRu" class="form-input" placeholder="Ruscha misol..."></div>
+    <div class="form-row"><label>Misol (o'zbek)</label>
+      <input type="text" id="awExUz" class="form-input" placeholder="O'zbekcha misol..."></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <div class="form-row"><label>Kategoriya</label>
+        <select id="awCat" class="form-input">
+          <option value="general">Umumiy</option>
+          <option value="greeting">Salomlashish</option>
+          <option value="numbers">Raqamlar</option>
+          <option value="colors">Ranglar</option>
+          <option value="family">Oila</option>
+          <option value="food">Oziq-ovqat</option>
+          <option value="verbs">Fe'llar</option>
+          <option value="adjectives">Sifatlar</option>
+        </select>
+      </div>
+      <div class="form-row"><label>Daraja</label>
+        <select id="awLevel" class="form-input">
+          <option value="beginner">🟢 Boshlang'ich</option>
+          <option value="intermediate">🟡 O'rta</option>
+          <option value="advanced">🔴 Yuqori</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="submitAddWord()">➕ Qo'shish</button>
+      <button class="btn btn-ghost" onclick="closeModal('addWordModal')">Bekor</button>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Word Modal -->
+<div id="editWordModal" class="modal" style="display:none">
+  <div class="modal-overlay" onclick="closeModal('editWordModal')"></div>
+  <div class="modal-content">
+    <button class="modal-close" onclick="closeModal('editWordModal')">✕</button>
+    <h2>✏️ So'zni Tahrirlash</h2>
+    <input type="hidden" id="ewId">
+    <div class="form-row"><label>Ruscha</label>
+      <input type="text" id="ewRu" class="form-input"></div>
+    <div class="form-row"><label>O'zbekcha</label>
+      <input type="text" id="ewUz" class="form-input"></div>
+    <div class="form-row"><label>Talaffuz</label>
+      <input type="text" id="ewPron" class="form-input"></div>
+    <div class="form-row"><label>Misol (rus)</label>
+      <input type="text" id="ewExRu" class="form-input"></div>
+    <div class="form-row"><label>Misol (o'zbek)</label>
+      <input type="text" id="ewExUz" class="form-input"></div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="submitEditWord()">💾 Saqlash</button>
+      <button class="btn btn-ghost" onclick="closeModal('editWordModal')">Bekor</button>
+    </div>
+  </div>
+</div>
+
+<!-- AI Fetch Words Modal -->
+<div id="aiFetchModal" class="modal" style="display:none">
+  <div class="modal-overlay" onclick="closeModal('aiFetchModal')"></div>
+  <div class="modal-content">
+    <button class="modal-close" onclick="closeModal('aiFetchModal')">✕</button>
+    <h2>🤖 AI dan So'zlar Yuklash</h2>
+    <p class="muted">AI orqali yangi so'zlar generatsiya qilish va bazaga qo'shish</p>
+    <div class="form-row"><label>Kategoriya</label>
+      <select id="aiFetchCat" class="form-input">
+        <option value="general">Umumiy</option>
+        <option value="travel">Sayohat</option>
+        <option value="work">Ish joyi</option>
+        <option value="health">Sog'liq</option>
+        <option value="nature">Tabiat</option>
+        <option value="time">Vaqt</option>
+        <option value="emotions">His-tuyg'ular</option>
+        <option value="shopping">Xarid</option>
+      </select>
+    </div>
+    <div class="form-row"><label>Daraja</label>
+      <select id="aiFetchLevel" class="form-input">
+        <option value="beginner">🟢 Boshlang'ich</option>
+        <option value="intermediate">🟡 O'rta</option>
+        <option value="advanced">🔴 Yuqori</option>
+      </select>
+    </div>
+    <div class="form-row"><label>Nechta so'z (max 20)</label>
+      <input type="number" id="aiFetchCount" class="form-input" value="10" min="5" max="20">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" id="aiFetchBtn" onclick="doAIFetch()">🤖 Yuklash</button>
+      <button class="btn btn-ghost" onclick="closeModal('aiFetchModal')">Bekor</button>
+    </div>
+  </div>
+</div>
+
+<!-- Grammar Detail Modal -->
+<div id="grammarModal" class="modal modal-wide" style="display:none">
+  <div class="modal-overlay" onclick="closeModal('grammarModal')"></div>
+  <div class="modal-content">
+    <button class="modal-close" onclick="closeModal('grammarModal')">✕</button>
+    <div id="grammarModalContent"></div>
+    <button class="btn btn-ghost btn-sm" onclick="openGrammarEdit()" style="margin-top:12px">✏️ Tahrirlash</button>
+  </div>
+</div>
+
+<!-- Grammar Edit Modal -->
+<div id="grammarEditModal" class="modal" style="display:none">
+  <div class="modal-overlay" onclick="closeModal('grammarEditModal')"></div>
+  <div class="modal-content">
+    <button class="modal-close" onclick="closeModal('grammarEditModal')">✕</button>
+    <h2>✏️ Grammatikani Tahrirlash</h2>
+    <input type="hidden" id="geId">
+    <div class="form-row"><label>Sarlavha</label>
+      <input type="text" id="geTitle" class="form-input"></div>
+    <div class="form-row"><label>Mazmun</label>
+      <textarea id="geContent" class="form-input" rows="6"></textarea></div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="submitGrammarEdit()">💾 Saqlash</button>
+      <button class="btn btn-ghost" onclick="closeModal('grammarEditModal')">Bekor</button>
+    </div>
+  </div>
+</div>
+
+<!-- AI Grammar Modal -->
+<div id="aiGrammarModal" class="modal" style="display:none">
+  <div class="modal-overlay" onclick="closeModal('aiGrammarModal')"></div>
+  <div class="modal-content">
+    <button class="modal-close" onclick="closeModal('aiGrammarModal')">✕</button>
+    <h2>🤖 AI Grammatika Tushuntirish</h2>
+    <div class="form-row"><label>Mavzu (rus yoki o'zbek tilida)</label>
+      <input type="text" id="aiGrammarTopic" class="form-input"
+             placeholder="Masalan: падежи, глаголы движения..."></div>
+    <div id="aiGrammarResult" class="ai-result" style="display:none"></div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" id="aiGrammarBtn" onclick="doAIGrammar()">🤖 Tushuntir</button>
+      <button class="btn btn-ghost" onclick="closeModal('aiGrammarModal')">Yopish</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add Lesson Modal -->
+<div id="addLessonModal" class="modal" style="display:none">
+  <div class="modal-overlay" onclick="closeModal('addLessonModal')"></div>
+  <div class="modal-content">
+    <button class="modal-close" onclick="closeModal('addLessonModal')">✕</button>
+    <h2>📅 Yangi Dars Qo'shish</h2>
+    <div class="form-row"><label>Dars nomi *</label>
+      <input type="text" id="alTitle" class="form-input" placeholder="Dars nomi..."></div>
+    <div class="form-row"><label>Vaqt *</label>
+      <input type="datetime-local" id="alTime" class="form-input"></div>
+    <div class="form-row"><label>Davomiylik (daqiqa)</label>
+      <input type="number" id="alDur" class="form-input" value="30" min="5" max="180"></div>
+    <div class="form-row"><label>Tur</label>
+      <select id="alType" class="form-input">
+        <option value="vocabulary">📖 Lug'at</option>
+        <option value="grammar">📝 Grammatika</option>
+        <option value="flashcards">🃏 Kartochkalar</option>
+        <option value="quiz">❓ Test</option>
+        <option value="chat">🤖 AI Suhbat</option>
+        <option value="game">🎮 O'yin</option>
+      </select>
+    </div>
+    <div class="form-row"><label>Izoh</label>
+      <input type="text" id="alDesc" class="form-input" placeholder="Ixtiyoriy izoh..."></div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="submitAddLesson()">📅 Qo'shish</button>
+      <button class="btn btn-ghost" onclick="closeModal('addLessonModal')">Bekor</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toast" class="toast"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="/static/js/app.js"></script>
+</body>
+</html>

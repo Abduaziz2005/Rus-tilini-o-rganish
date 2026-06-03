@@ -53,38 +53,59 @@ app = Flask(__name__)
 app.secret_key = secrets.token_hex(32)
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
 
-# ── ANTHROPIC API ─────────────────────────────────
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-AI_MODEL = "claude-sonnet-4-20250514"
+# ── GOOGLE GEMINI API (bepul: 1500 so'rov/kun) ───
+# API kalit olish: https://aistudio.google.com/app/apikey (bepul, Google akkaunt kifoya)
+GEMINI_API_KEY = os.environ.get(
+    "GEMINI_API_KEY",
+    "AIzaSyD-9tSrke72I3lGdwjgKMoLKyHH9VwBMh0"   # ← demo kalit (cheklangan)
+)
+GEMINI_MODEL = "gemini-1.5-flash"   # eng tez va bepul model
 
 def call_ai(messages, system_prompt="", max_tokens=1000):
-    """Anthropic API chaqiruvi"""
-    import urllib.request, urllib.parse
-    if not ANTHROPIC_API_KEY:
+    """Google Gemini API chaqiruvi (bepul, tashqi kutubxonasiz)"""
+    import urllib.request
+    if not GEMINI_API_KEY:
         return None
-    payload = {
-        "model": AI_MODEL,
-        "max_tokens": max_tokens,
-        "messages": messages,
-    }
+
+    # Gemini format: system + messages → contents
+    contents = []
     if system_prompt:
-        payload["system"] = system_prompt
+        contents.append({
+            "role": "user",
+            "parts": [{"text": f"[Tizim ko'rsatmasi]: {system_prompt}"}]
+        })
+        contents.append({
+            "role": "model",
+            "parts": [{"text": "Tushundim, shu ko'rsatmalarga amal qilaman."}]
+        })
+
+    for msg in messages:
+        role = "user" if msg["role"] == "user" else "model"
+        contents.append({"role": role, "parts": [{"text": msg["content"]}]})
+
+    payload = {
+        "contents": contents,
+        "generationConfig": {
+            "maxOutputTokens": max_tokens,
+            "temperature": 0.7,
+        }
+    }
+    url = (
+        f"https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
+    )
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
-        "https://api.anthropic.com/v1/messages",
-        data=data,
-        headers={
-            "x-api-key": ANTHROPIC_API_KEY,
-            "anthropic-version": "2023-06-01",
-            "content-type": "application/json",
-        },
+        url, data=data,
+        headers={"Content-Type": "application/json"},
         method="POST"
     )
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
             result = json.loads(resp.read())
-            return result["content"][0]["text"]
+            return result["candidates"][0]["content"]["parts"][0]["text"]
     except Exception as e:
+        print(f"[Gemini xato]: {e}")
         return None
 
 # ── DATABASE ──────────────────────────────────────
@@ -108,7 +129,7 @@ class Database:
         -- O'quvchi profili
         CREATE TABLE IF NOT EXISTS profile (
             id INTEGER PRIMARY KEY,
-            name TEXT DEFAULT 'O\'quvchi',
+            name TEXT DEFAULT 'O''quvchi',
             level TEXT DEFAULT 'beginner',
             total_xp INTEGER DEFAULT 0,
             streak_days INTEGER DEFAULT 0,
@@ -228,7 +249,7 @@ class Database:
         """Boshlang'ich ma'lumotlarni yuklash"""
         # Profil
         if not self.conn.execute("SELECT id FROM profile").fetchone():
-            self.conn.execute("INSERT INTO profile(id,name,level) VALUES(1,'O\\'quvchi','beginner')")
+            self.conn.execute("INSERT INTO profile(id,name,level) VALUES(?,?,?)", (1, "O'quvchi", "beginner"))
             self.conn.commit()
 
         # Settings
@@ -936,8 +957,8 @@ def api_leaderboard():
 def api_chat():
     if db.get_setting("internet_allowed", "on") != "on":
         return jsonify({"error": "Internet ruxsat etilmagan"}), 403
-    if not ANTHROPIC_API_KEY:
-        return jsonify({"error": "AI API kalit topilmadi. ANTHROPIC_API_KEY ni o'rnating."}), 400
+    if not GEMINI_API_KEY:
+        return jsonify({"error": "AI API kalit topilmadi. aistudio.google.com dan bepul kalit oling."}), 400
 
     d = request.get_json()
     user_msg = d.get("message", "").strip()
@@ -950,15 +971,21 @@ def api_chat():
         messages.append({"role": h["role"], "content": h["content"]})
     messages.append({"role": "user", "content": user_msg})
 
-    system = f"""Sen rus tili o'qituvchisi va suhbat sherigi bo'lib ishlayapsan.
-Foydalanuvchi daraja: {level}.
-Qoidalar:
-- Foydalanuvchining rus tilidagi xatolarini tuzat (qisqacha)
-- {'Oddiy so\'zlar va gaplardan foydalanin' if level == 'beginner' else 'Normal rus tilida gaplashing'}
-- Har javobda o\'zbekcha tarjima qo\'shing
-- Agar xato qilsa, xatoni ko\'rsat va to\'g\'risini yoz
-- Qiziqarli savollar ber, suhbatni davom ettir
-- Qisqa va aniq javob ber"""
+    if level == 'beginner':
+        lang_hint = "Oddiy so'zlar va gaplardan foydalanin"
+    else:
+        lang_hint = "Normal rus tilida gaplashing"
+    system = (
+        "Sen rus tili o'qituvchisi va suhbat sherigi bo'lib ishlayapsan.\n"
+        f"Foydalanuvchi daraja: {level}.\n"
+        "Qoidalar:\n"
+        "- Foydalanuvchining rus tilidagi xatolarini tuzat (qisqacha)\n"
+        f"- {lang_hint}\n"
+        "- Har javobda o'zbekcha tarjima qo'shing\n"
+        "- Agar xato qilsa, xatoni ko'rsat va to'g'risini yoz\n"
+        "- Qiziqarli savollar ber, suhbatni davom ettir\n"
+        "- Qisqa va aniq javob ber"
+    )
 
     response = call_ai(messages, system_prompt=system, max_tokens=500)
     if not response:
@@ -998,7 +1025,7 @@ def api_chat_clear():
 def api_ai_translate():
     if db.get_setting("internet_allowed", "on") != "on":
         return jsonify({"error": "Internet yo'q"}), 403
-    if not ANTHROPIC_API_KEY:
+    if not GEMINI_API_KEY:
         return jsonify({"error": "API kalit yo'q"}), 400
     word = request.get_json().get("word", "").strip()
     if not word: return jsonify({"error": "So'z kiritilmagan"}), 400
@@ -1018,7 +1045,7 @@ def api_ai_translate():
 def api_ai_grammar():
     if db.get_setting("internet_allowed", "on") != "on":
         return jsonify({"error": "Internet yo'q"}), 403
-    if not ANTHROPIC_API_KEY:
+    if not GEMINI_API_KEY:
         return jsonify({"error": "API kalit yo'q"}), 400
     topic = request.get_json().get("topic", "").strip()
     resp = call_ai([{"role": "user", "content": f"Rus tili grammatikasini o'zbek tilida tushuntir: '{topic}'. Misollar bilan."}],
@@ -1031,7 +1058,7 @@ def api_ai_grammar():
 def api_ai_fetch_words():
     if db.get_setting("internet_allowed", "on") != "on":
         return jsonify({"error": "Internet ruxsat etilmagan"}), 403
-    if not ANTHROPIC_API_KEY:
+    if not GEMINI_API_KEY:
         return jsonify({"error": "API kalit yo'q"}), 400
     d = request.get_json()
     category = d.get("category", "general")
@@ -1095,14 +1122,15 @@ if __name__ == "__main__":
     print("=" * 60)
     print(f"  🌐  URL     : http://localhost:5800")
     print(f"  📂  Papka  : {BASE_DIR}")
-    ai_ok = "✅ tayyor" if ANTHROPIC_API_KEY else "❌ ANTHROPIC_API_KEY o'rnatilmagan"
+    ai_ok = "✅ tayyor (Gemini)" if GEMINI_API_KEY else "❌ GEMINI_API_KEY o'rnatilmagan"
     print(f"  🤖  AI     : {ai_ok}")
     notif_ok = "✅" if NOTIF_AVAILABLE else "⚠ win10toast o'rnatilmagan (pip install win10toast)"
     print(f"  🔔  Notif  : {notif_ok}")
     print("=" * 60)
-    if not ANTHROPIC_API_KEY:
-        print("\n  ⚠️  AI funksiyalari uchun:")
-        print("  set ANTHROPIC_API_KEY=sk-ant-... (Windows)")
-        print("  yoki: export ANTHROPIC_API_KEY=sk-ant-... (Linux/Mac)\n")
+    if not GEMINI_API_KEY:
+        print("\n  ⚠️  AI funksiyalari uchun bepul kalit oling:")
+        print("  https://aistudio.google.com/app/apikey")
+        print("  set GEMINI_API_KEY=AIza... (Windows)")
+        print("  yoki: export GEMINI_API_KEY=AIza... (Linux/Mac)\n")
     threading.Thread(target=open_browser, daemon=True).start()
     app.run(host="0.0.0.0", port=5800, debug=False, threaded=True)
