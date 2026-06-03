@@ -278,6 +278,62 @@ class Database:
         );
         CREATE INDEX IF NOT EXISTS idx_knowledge_q ON ai_knowledge(question);
 
+        -- ═══ AI BOSHQARUV PANELI JADVALLARI ═══════════
+
+        -- 1. Savol so'zlar (nima, kim, qachon, qayerda, qanday, nega...)
+        CREATE TABLE IF NOT EXISTS ai_question_words (
+            id      INTEGER PRIMARY KEY AUTOINCREMENT,
+            word    TEXT NOT NULL UNIQUE,
+            lang    TEXT DEFAULT 'uz',
+            enabled INTEGER DEFAULT 1,
+            added_at TEXT DEFAULT (datetime('now'))
+        );
+
+        -- 2. Nomlar (mashina, kubik, poytaxt, prezident...)
+        CREATE TABLE IF NOT EXISTS ai_names (
+            id      INTEGER PRIMARY KEY AUTOINCREMENT,
+            name    TEXT NOT NULL UNIQUE,
+            q_words TEXT DEFAULT '',   -- bog'liq savol so'zlar (vergul bilan)
+            added_at TEXT DEFAULT (datetime('now'))
+        );
+
+        -- 3. Savol+Nom birikmasi uchun javoblar
+        CREATE TABLE IF NOT EXISTS ai_qa_pairs (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            q_word      TEXT NOT NULL,
+            name        TEXT NOT NULL,
+            answer      TEXT NOT NULL,
+            use_count   INTEGER DEFAULT 0,
+            updated_at  TEXT DEFAULT (datetime('now')),
+            UNIQUE(q_word, name)
+        );
+
+        -- 4. Sinonimlar guruhlari
+        CREATE TABLE IF NOT EXISTS ai_synonym_groups (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            group_name  TEXT NOT NULL,
+            synonyms    TEXT NOT NULL,   -- JSON array
+            answer      TEXT NOT NULL,
+            added_at    TEXT DEFAULT (datetime('now'))
+        );
+
+        -- 5. Taqiqlangan so'zlar va maxsus javoblar
+        CREATE TABLE IF NOT EXISTS ai_banned_words (
+            id      INTEGER PRIMARY KEY AUTOINCREMENT,
+            word    TEXT NOT NULL UNIQUE,
+            answer  TEXT NOT NULL,
+            enabled INTEGER DEFAULT 1,
+            added_at TEXT DEFAULT (datetime('now'))
+        );
+
+        -- Standart javob (hech narsa topilmasa)
+        CREATE TABLE IF NOT EXISTS ai_default_response (
+            id      INTEGER PRIMARY KEY CHECK (id = 1),
+            text    TEXT NOT NULL DEFAULT 'Kechirasiz, bu savolga javobim yo''q. Boshqa narsa so''rasangiz yordam beraman!'
+        );
+        INSERT OR IGNORE INTO ai_default_response(id,text)
+        VALUES(1,'Kechirasiz, bu savolga javobim yo''q. Boshqa narsa so''rasangiz yordam beraman!');
+
         -- Foydalanuvchi profil xotirasi
         CREATE TABLE IF NOT EXISTS user_memory (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -390,6 +446,8 @@ class Database:
 
         # Cloze test boshlang'ich ma'lumotlar
         self.cloze_seed()
+        # AI panel boshlang'ich ma'lumotlar
+        self._seed_ai_panel()
 
         # Yangi katta kategoriyalar
         new_cats = [
@@ -411,6 +469,47 @@ class Database:
                 "SELECT COUNT(*) FROM words WHERE category=?", (cat,)).fetchone()[0]
             if cnt < min_cnt:
                 getattr(self, fn)()
+
+    def _seed_ai_panel(self):
+        """AI Boshqaruv paneli boshlang'ich ma'lumotlari"""
+        # Savol so'zlar
+        qwords = ["nima","kim","qachon","qayerda","qanday","nega","qancha",
+                  "necha","qachongacha","что","кто","когда","где","как","почему","сколько"]
+        for w in qwords:
+            self.conn.execute(
+                "INSERT OR IGNORE INTO ai_question_words(word) VALUES(?)", (w,))
+
+        # Standart sinonimlar
+        import json
+        synonyms = [
+            ("Salom guruhi",  json.dumps(["salom","assalom","assalomu alaykum","привет","здравствуйте"]),
+             "Vaalaykum assalom! Qanday yordam bera olaman? 😊"),
+            ("Rahmat guruhi", json.dumps(["rahmat","tashakkur","спасибо","рахмет"]),
+             "Arzimaydi! Har doim yordam berishdan xursandman! 😊"),
+            ("Xayr guruhi",   json.dumps(["xayr","hayr","ko'rishguncha","пока","до свидания"]),
+             "Xayr! Ko'rishguncha! 👋"),
+        ]
+        for grp, syns, ans in synonyms:
+            self.conn.execute(
+                "INSERT OR IGNORE INTO ai_synonym_groups(group_name,synonyms,answer) VALUES(?,?,?)",
+                (grp, syns, ans))
+
+        # Namuna savol+nom juftliklari
+        examples = [
+            ("nima","poytaxt","O'zbekistonning poytaxti — Toshkent shahri 🏙️"),
+            ("nima","matematik","Matematika — son va shakllar haqidagi fan 📐"),
+            ("kim","prezident","O'zbekiston Prezidenti — Shavkat Mirziyoyev 🇺🇿"),
+        ]
+        for qw, nm, ans in examples:
+            # Avval nom qo'shish
+            self.conn.execute(
+                "INSERT OR IGNORE INTO ai_names(name, q_words) VALUES(?,?)",
+                (nm, qw))
+            self.conn.execute(
+                "INSERT OR IGNORE INTO ai_qa_pairs(q_word,name,answer) VALUES(?,?,?)",
+                (qw, nm, ans))
+
+        self.conn.commit()
 
     def _insert_starter_words(self):
         words = [
@@ -2692,6 +2791,138 @@ def ai_knowledge_list():
     return db._rows("SELECT * FROM ai_knowledge ORDER BY added_at DESC LIMIT 100")
 
 
+# ══════════════════════════════════════════════════
+# AI PANEL ENGINE — javob topish tartibi
+# 1) Taqiqlangan so'z  2) Matematika  3) Sinonim
+# 4) Savol+Nom juftligi  5) Standart javob
+# ══════════════════════════════════════════════════
+import re as _re_engine, math as _math_engine
+
+def _panel_engine(user_msg: str) -> dict | None:
+    """
+    AI panel orqali kiritilgan ma'lumotlar asosida javob qaytaradi.
+    None qaytarsa — panel javob bera olmadi, oddiy AI ishlasin.
+    """
+    text  = user_msg.strip()
+    lower = text.lower()
+
+    # ── 1. TAQIQLANGAN SO'ZLAR ─────────────────────
+    bans = db._rows(
+        "SELECT word, answer FROM ai_banned_words WHERE enabled=1")
+    for ban in bans:
+        if ban["word"].lower() in lower:
+            return {"answer": ban["answer"], "source": "banned",
+                    "matched": ban["word"]}
+
+    # ── 2. MATEMATIKA ──────────────────────────────
+    math_result = _try_math(text)
+    if math_result is not None:
+        return {"answer": math_result, "source": "math"}
+
+    # ── 3. SINONIMLAR ──────────────────────────────
+    syn_groups = db._rows("SELECT * FROM ai_synonym_groups")
+    for grp in syn_groups:
+        try:
+            syns = json.loads(grp["synonyms"])
+        except Exception:
+            syns = [grp["synonyms"]]
+        for s in syns:
+            if s.lower() in lower or lower in s.lower():
+                return {"answer": grp["answer"], "source": "synonym",
+                        "group": grp["group_name"]}
+
+    # ── 4. SAVOL SO'Z + NOM JUFTLIGI ──────────────
+    q_words = db._rows(
+        "SELECT word FROM ai_question_words WHERE enabled=1")
+    names   = db._rows("SELECT name FROM ai_names")
+
+    found_q  = None
+    found_nm = None
+    for qw in q_words:
+        w = qw["word"].lower()
+        if w in lower:
+            found_q = w
+            break
+
+    for nm in names:
+        n = nm["name"].lower()
+        if n in lower:
+            found_nm = n
+            break
+
+    if found_q and found_nm:
+        pair = db._row(
+            "SELECT * FROM ai_qa_pairs WHERE q_word=? AND name=?",
+            (found_q, found_nm))
+        if pair:
+            db._exec(
+                "UPDATE ai_qa_pairs SET use_count=use_count+1 WHERE id=?",
+                (pair["id"],))
+            return {"answer": pair["answer"], "source": "qa_pair",
+                    "q_word": found_q, "name": found_nm}
+
+    # Faqat nom topilsa (savol so'zsiz ham javob berish)
+    if found_nm:
+        best = db._row(
+            "SELECT * FROM ai_qa_pairs WHERE name=? ORDER BY use_count DESC LIMIT 1",
+            (found_nm,))
+        if best:
+            db._exec(
+                "UPDATE ai_qa_pairs SET use_count=use_count+1 WHERE id=?",
+                (best["id"],))
+            return {"answer": best["answer"], "source": "qa_name_only",
+                    "name": found_nm}
+
+    # ── 5. STANDART JAVOB ──────────────────────────
+    # (None qaytarib, Gemini ishlasin — standart javobni JS ko'rsatadi)
+    return None
+
+
+def _try_math(text: str):
+    """Xabardagi matematik ifodani hisoblaydi. None qaytarsa — ifoda yo'q."""
+    # Matematik belgilar bor-yo'qligini tekshirish
+    if not _re_engine.search(r'[\d]', text):
+        return None
+
+    # Ifodani tozalash: so'zlarni matematik operatorlarga aylantirish
+    expr = text.lower()
+    replacements = {
+        r'\bqo\'shish\b':    '+',   r'\bplus\b':    '+',
+        r'\bayirish\b':      '-',   r'\bminus\b':   '-',
+        r'\bko\'paytirish\b':'*',   r'\bbo\'lish\b':'/',
+        r'\bdaraja\b':       '**',  r'\bildiz\b':   'sqrt',
+        r'\bfoiz\b':         '/100',
+        r'\bpl[yu]+s\b':     '+',
+        r'\xd7':             '*',   r'\xf7':        '/',
+        r'\xb2':             '**2', r'\xb3':        '**3',
+        r'\s+':              ' ',
+    }
+    for pat, repl in replacements.items():
+        expr = _re_engine.sub(pat, repl, expr)
+
+    # Faqat raqam va operator qoldirish
+    expr = _re_engine.sub(r'[^0-9+\-*/().\s²³√]', ' ', text)
+    expr = expr.strip()
+    if not expr:
+        return None
+
+    # sqrt yozuvi
+    expr2 = _re_engine.sub(r'sqrt\s*\(?([\d.]+)\)?',
+                            lambda m: str(_math_engine.sqrt(float(m.group(1)))),
+                            expr)
+    try:
+        # Faqat xavfsiz ifoda
+        if _re_engine.search(r'[a-zA-Z]', expr2):
+            return None
+        result = eval(expr2, {"__builtins__": {}})
+        # Butun son bo'lsa int ko'rsat
+        if isinstance(result, float) and result == int(result):
+            result = int(result)
+        return f"🧮 Natija: **{result}**\n_{expr.strip()} = {result}_"
+    except Exception:
+        return None
+
+
 # ── System prompt ─────────────────────────────────
 def _chat_system(level, mode="text", topic="free", custom_topic="", lang="auto"):
     lvl_hints = {
@@ -2954,6 +3185,21 @@ def api_chat():
         return jsonify({"error": "Xabar bo'sh"}), 400
 
     detected_lang = _detect_lang(user_msg) if lang_ui == "auto" else lang_ui
+
+    # ── AI PANEL ENGINE: eng birinchi tekshiriladi ──
+    panel_result = _panel_engine(user_msg)
+    if panel_result:
+        resp = panel_result["answer"]
+        db.save_chat("user", user_msg)
+        db.save_chat("assistant", resp)
+        db.add_xp(3)
+        return jsonify({
+            "response": resp,
+            "choices": [],
+            "actions": [],
+            "ok": True,
+            "source": panel_result.get("source", "panel"),
+        })
 
     if not internet or not GEMINI_API_KEY:
         known = ai_knowledge_search(user_msg)
@@ -3602,6 +3848,255 @@ def api_goals_report():
     else:
         msg = "⏰ Bugun hali ko'p ish bor! Boshlang!"
     return jsonify({**r, "pcts": pcts, "avg_pct": avg, "message": msg})
+
+
+# ══════════════════════════════════════════════════
+# AI PANEL — BOSHQARUV API (15 route)
+# ══════════════════════════════════════════════════
+
+# ── 1. Savol so'zlar ───────────────────────────────
+@app.route("/api/panel/qwords", methods=["GET"])
+@require_auth
+def panel_qwords_list():
+    return jsonify(db._rows("SELECT * FROM ai_question_words ORDER BY word"))
+
+@app.route("/api/panel/qwords", methods=["POST"])
+@require_auth
+def panel_qwords_add():
+    d    = request.get_json()
+    word = d.get("word", "").strip().lower()
+    if not word:
+        return jsonify({"error": "So'z kiritilmagan"}), 400
+    ex = db._row("SELECT id FROM ai_question_words WHERE word=?", (word,))
+    if ex:
+        return jsonify({"error": "Bu so'z allaqachon mavjud", "id": ex["id"]}), 409
+    wid = db._ins(
+        "INSERT INTO ai_question_words(word,lang) VALUES(?,?)",
+        (word, d.get("lang", "uz")))
+    return jsonify({"ok": True, "id": wid})
+
+@app.route("/api/panel/qwords/<int:wid>", methods=["DELETE"])
+@require_auth
+def panel_qwords_delete(wid):
+    db._exec("DELETE FROM ai_question_words WHERE id=?", (wid,))
+    return jsonify({"ok": True})
+
+@app.route("/api/panel/qwords/<int:wid>/toggle", methods=["POST"])
+@require_auth
+def panel_qwords_toggle(wid):
+    row = db._row("SELECT enabled FROM ai_question_words WHERE id=?", (wid,))
+    if not row:
+        return jsonify({"error": "Topilmadi"}), 404
+    new = 0 if row["enabled"] else 1
+    db._exec("UPDATE ai_question_words SET enabled=? WHERE id=?", (new, wid))
+    return jsonify({"ok": True, "enabled": bool(new)})
+
+
+# ── 2. Nomlar ──────────────────────────────────────
+@app.route("/api/panel/names", methods=["GET"])
+@require_auth
+def panel_names_list():
+    return jsonify(db._rows("SELECT * FROM ai_names ORDER BY name"))
+
+@app.route("/api/panel/names", methods=["POST"])
+@require_auth
+def panel_names_add():
+    d    = request.get_json()
+    name = d.get("name", "").strip().lower()
+    if not name:
+        return jsonify({"error": "Nom kiritilmagan"}), 400
+    ex = db._row("SELECT id FROM ai_names WHERE name=?", (name,))
+    if ex:
+        return jsonify({"error": "Bu nom allaqachon mavjud", "id": ex["id"]}), 409
+    qws = d.get("q_words", "")
+    nid = db._ins(
+        "INSERT INTO ai_names(name, q_words) VALUES(?,?)", (name, qws))
+    return jsonify({"ok": True, "id": nid})
+
+@app.route("/api/panel/names/<int:nid>", methods=["DELETE"])
+@require_auth
+def panel_names_delete(nid):
+    nm = db._row("SELECT name FROM ai_names WHERE id=?", (nid,))
+    if nm:
+        db._exec("DELETE FROM ai_qa_pairs WHERE name=?", (nm["name"],))
+    db._exec("DELETE FROM ai_names WHERE id=?", (nid,))
+    return jsonify({"ok": True})
+
+
+# ── 3. Savol+Nom juftliklari (Ma'lumot) ────────────
+@app.route("/api/panel/qa", methods=["GET"])
+@require_auth
+def panel_qa_list():
+    q_word = request.args.get("q_word", "")
+    name   = request.args.get("name",   "")
+    q = "SELECT * FROM ai_qa_pairs WHERE 1=1"
+    p = []
+    if q_word: q += " AND q_word=?"; p.append(q_word)
+    if name:   q += " AND name=?";   p.append(name)
+    q += " ORDER BY updated_at DESC"
+    return jsonify(db._rows(q, p))
+
+@app.route("/api/panel/qa", methods=["POST"])
+@require_auth
+def panel_qa_save():
+    d      = request.get_json()
+    q_word = d.get("q_word", "").strip().lower()
+    name   = d.get("name",   "").strip().lower()
+    answer = d.get("answer", "").strip()
+    if not q_word or not name or not answer:
+        return jsonify({"error": "q_word, name, answer majburiy"}), 400
+    # Nom mavjud bo'lmasa yaratish
+    db.conn.execute(
+        "INSERT OR IGNORE INTO ai_names(name, q_words) VALUES(?,?)", (name, q_word))
+    # Savol so'z mavjud bo'lmasa yaratish
+    db.conn.execute(
+        "INSERT OR IGNORE INTO ai_question_words(word) VALUES(?)", (q_word,))
+    # Juftlik: mavjud bo'lsa yangilash, yo'q bo'lsa qo'shish
+    ex = db._row(
+        "SELECT id FROM ai_qa_pairs WHERE q_word=? AND name=?", (q_word, name))
+    if ex:
+        db._exec(
+            "UPDATE ai_qa_pairs SET answer=?, updated_at=datetime('now') WHERE id=?",
+            (answer, ex["id"]))
+        pid = ex["id"]
+    else:
+        pid = db._ins(
+            "INSERT INTO ai_qa_pairs(q_word,name,answer) VALUES(?,?,?)",
+            (q_word, name, answer))
+    db.conn.commit()
+    return jsonify({"ok": True, "id": pid})
+
+@app.route("/api/panel/qa/<int:pid>", methods=["DELETE"])
+@require_auth
+def panel_qa_delete(pid):
+    db._exec("DELETE FROM ai_qa_pairs WHERE id=?", (pid,))
+    return jsonify({"ok": True})
+
+
+# ── 4. Sinonimlar guruhlari ────────────────────────
+@app.route("/api/panel/synonyms", methods=["GET"])
+@require_auth
+def panel_synonyms_list():
+    rows = db._rows("SELECT * FROM ai_synonym_groups ORDER BY group_name")
+    for r in rows:
+        try:    r["synonyms_list"] = json.loads(r["synonyms"])
+        except: r["synonyms_list"] = []
+    return jsonify(rows)
+
+@app.route("/api/panel/synonyms", methods=["POST"])
+@require_auth
+def panel_synonyms_save():
+    d    = request.get_json()
+    gid  = d.get("id")
+    name = d.get("group_name", "").strip()
+    syns = d.get("synonyms", [])    # list
+    ans  = d.get("answer", "").strip()
+    if not syns or not ans:
+        return jsonify({"error": "synonyms va answer majburiy"}), 400
+    syns_json = json.dumps([s.strip().lower() for s in syns if s.strip()],
+                           ensure_ascii=False)
+    if gid:
+        db._exec(
+            "UPDATE ai_synonym_groups SET group_name=?,synonyms=?,answer=? WHERE id=?",
+            (name, syns_json, ans, gid))
+        return jsonify({"ok": True, "id": gid})
+    new_id = db._ins(
+        "INSERT INTO ai_synonym_groups(group_name,synonyms,answer) VALUES(?,?,?)",
+        (name, syns_json, ans))
+    return jsonify({"ok": True, "id": new_id})
+
+@app.route("/api/panel/synonyms/<int:sid>", methods=["DELETE"])
+@require_auth
+def panel_synonyms_delete(sid):
+    db._exec("DELETE FROM ai_synonym_groups WHERE id=?", (sid,))
+    return jsonify({"ok": True})
+
+
+# ── 5. Taqiqlangan so'zlar ─────────────────────────
+@app.route("/api/panel/banned", methods=["GET"])
+@require_auth
+def panel_banned_list():
+    return jsonify(db._rows(
+        "SELECT * FROM ai_banned_words ORDER BY word"))
+
+@app.route("/api/panel/banned", methods=["POST"])
+@require_auth
+def panel_banned_save():
+    d    = request.get_json()
+    bid  = d.get("id")
+    word = d.get("word", "").strip().lower()
+    ans  = d.get("answer", "").strip()
+    if not word or not ans:
+        return jsonify({"error": "word va answer majburiy"}), 400
+    if bid:
+        db._exec(
+            "UPDATE ai_banned_words SET word=?,answer=?,enabled=? WHERE id=?",
+            (word, ans, int(d.get("enabled", 1)), bid))
+        return jsonify({"ok": True, "id": bid})
+    ex = db._row("SELECT id FROM ai_banned_words WHERE word=?", (word,))
+    if ex:
+        db._exec("UPDATE ai_banned_words SET answer=? WHERE id=?", (ans, ex["id"]))
+        return jsonify({"ok": True, "id": ex["id"]})
+    new_id = db._ins(
+        "INSERT INTO ai_banned_words(word,answer) VALUES(?,?)", (word, ans))
+    return jsonify({"ok": True, "id": new_id})
+
+@app.route("/api/panel/banned/<int:bid>", methods=["DELETE"])
+@require_auth
+def panel_banned_delete(bid):
+    db._exec("DELETE FROM ai_banned_words WHERE id=?", (bid,))
+    return jsonify({"ok": True})
+
+
+# ── 6. Standart javob ─────────────────────────────
+@app.route("/api/panel/default", methods=["GET"])
+@require_auth
+def panel_default_get():
+    row = db._row("SELECT text FROM ai_default_response WHERE id=1")
+    return jsonify({"text": row["text"] if row else ""})
+
+@app.route("/api/panel/default", methods=["POST"])
+@require_auth
+def panel_default_set():
+    text = request.get_json().get("text", "").strip()
+    if not text:
+        return jsonify({"error": "text bo'sh bo'lmasin"}), 400
+    db._exec(
+        "INSERT INTO ai_default_response(id,text) VALUES(1,?) "
+        "ON CONFLICT(id) DO UPDATE SET text=excluded.text", (text,))
+    return jsonify({"ok": True})
+
+
+# ── 7. Real-vaqt test ──────────────────────────────
+@app.route("/api/panel/test", methods=["POST"])
+@require_auth
+def panel_test():
+    """Kiritilgan xabarga panel engine javobini qaytaradi"""
+    msg = request.get_json().get("message", "").strip()
+    if not msg:
+        return jsonify({"error": "Xabar bo'sh"}), 400
+    result = _panel_engine(msg)
+    if result:
+        return jsonify({"ok": True, "found": True,
+                        "answer": result["answer"],
+                        "source": result.get("source","panel")})
+    default = db._row("SELECT text FROM ai_default_response WHERE id=1")
+    return jsonify({"ok": True, "found": False,
+                    "answer": default["text"] if default else "Javob topilmadi",
+                    "source": "default"})
+
+
+# ── 8. Panel umumiy statistika ────────────────────
+@app.route("/api/panel/stats", methods=["GET"])
+@require_auth
+def panel_stats():
+    return jsonify({
+        "q_words":  db._row("SELECT COUNT(*) as c FROM ai_question_words")["c"],
+        "names":    db._row("SELECT COUNT(*) as c FROM ai_names")["c"],
+        "qa_pairs": db._row("SELECT COUNT(*) as c FROM ai_qa_pairs")["c"],
+        "synonyms": db._row("SELECT COUNT(*) as c FROM ai_synonym_groups")["c"],
+        "banned":   db._row("SELECT COUNT(*) as c FROM ai_banned_words")["c"],
+    })
 
 
 # ── Notify test ────────────────────────────────────

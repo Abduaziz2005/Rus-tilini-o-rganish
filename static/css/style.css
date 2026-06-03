@@ -2461,3 +2461,231 @@ input[type=range]::-webkit-slider-thumb {
   .growth-legend    { display: none; }
   .streak-notif-banner { font-size: 13px; }
 }
+
+
+/* ══════════════════════════════════════════════════
+   AI O'QITISH PANELI — To'liq stillar
+══════════════════════════════════════════════════ */
+
+/* ── Panel ochish tugmasi ────────────────────────── */
+.panel-open-btn {
+  background: linear-gradient(135deg,#4f8ef7,#7c5cfc) !important;
+  border: none !important;
+  color: #fff !important;
+  font-weight: 700;
+  letter-spacing: .3px;
+  box-shadow: 0 2px 10px rgba(79,142,247,.35);
+  transition: all .2s;
+}
+.panel-open-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(79,142,247,.5);
+}
+
+/* ── Chat ikki ustunli layout ────────────────────── */
+.chat-layout {
+  display: flex;
+  gap: 0;
+  min-height: 0;
+  transition: gap .25s;
+}
+.chat-layout.panel-open { gap: 14px; }
+
+.chat-main-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── O'ng panel (aside) ──────────────────────────── */
+.ai-panel-col {
+  width: 380px;
+  flex-shrink: 0;
+  flex-direction: column;
+  background: var(--bg2);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  animation: panelSlideIn .25s ease;
+  max-height: calc(100vh - 110px);
+}
+@keyframes panelSlideIn {
+  from { opacity:0; transform:translateX(20px); }
+  to   { opacity:1; transform:translateX(0); }
+}
+@media (max-width:900px){
+  .chat-layout.panel-open { flex-direction:column; }
+  .ai-panel-col { width:100%; max-height:55vh; }
+}
+
+/* ── Panel header ────────────────────────────────── */
+.ap-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 11px 14px 9px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg3);
+  flex-shrink: 0; flex-wrap: wrap;
+}
+.ap-title {
+  font-family: 'Unbounded',sans-serif;
+  font-size: 12px; font-weight: 700;
+  color: var(--text1); white-space: nowrap;
+}
+.ap-stats { display:flex; gap:4px; flex-wrap:wrap; flex:1; }
+.ap-stat-chip {
+  padding: 2px 7px;
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: 99px; font-size: 11px; color: var(--text2);
+  white-space: nowrap; cursor: default; transition: border-color .15s;
+}
+.ap-stat-chip:hover { border-color: var(--accent); }
+.ap-close-btn {
+  background: none; border: 1px solid var(--border);
+  border-radius: var(--radius-sm); color: var(--text2);
+  font-size: 12px; font-weight: 600; cursor: pointer;
+  padding: 4px 10px; transition: all .15s; white-space: nowrap; flex-shrink:0;
+}
+.ap-close-btn:hover { background:var(--red); border-color:var(--red); color:#fff; }
+
+/* ── Tab bar ─────────────────────────────────────── */
+.ap-tabs {
+  display:flex; gap:2px; padding:7px 10px 4px;
+  border-bottom:1px solid var(--border);
+  overflow-x:auto; flex-shrink:0; scrollbar-width:none;
+}
+.ap-tabs::-webkit-scrollbar { display:none; }
+.ap-tab {
+  padding:4px 10px; border:1.5px solid transparent;
+  border-radius:var(--radius-sm); background:transparent;
+  color:var(--text3); font-size:11px; font-weight:600;
+  cursor:pointer; white-space:nowrap; transition:all .15s;
+}
+.ap-tab:hover  { color:var(--text1); background:var(--bg3); }
+.ap-tab.active {
+  background:var(--accent); color:#fff; border-color:var(--accent);
+  box-shadow:0 2px 6px rgba(79,142,247,.3);
+}
+
+/* ── Section ─────────────────────────────────────── */
+.ap-section {
+  display:none; flex-direction:column; gap:10px;
+  padding:12px 14px; overflow-y:auto; flex:1;
+}
+.ap-section.active { display:flex; }
+.ap-desc {
+  font-size:12px; color:var(--text3); line-height:1.5;
+  padding:6px 10px; margin:0;
+  background:rgba(79,142,247,.07);
+  border-left:3px solid var(--accent);
+  border-radius:0 6px 6px 0;
+}
+
+/* ── Add row ─────────────────────────────────────── */
+.ap-add-row { display:flex; gap:6px; align-items:center; }
+.ap-add-row .form-input { flex:1; padding:7px 11px; font-size:13px; }
+
+/* ── Form ────────────────────────────────────────── */
+.ap-form {
+  display:flex; flex-direction:column; gap:8px;
+  background:var(--bg3); border:1px solid var(--border);
+  border-radius:var(--radius); padding:12px;
+}
+.ap-form-row { display:flex; flex-direction:column; gap:3px; }
+.ap-form-row label {
+  font-size:11px; font-weight:700; color:var(--text3);
+  text-transform:uppercase; letter-spacing:.4px;
+}
+.ap-form-row .form-input,
+.ap-form-row textarea { font-size:13px; padding:7px 10px; }
+.ap-form-row textarea { resize:vertical; min-height:60px; }
+
+/* ── List ────────────────────────────────────────── */
+.ap-list {
+  display:flex; flex-direction:column; gap:5px;
+  max-height:280px; overflow-y:auto; padding-right:2px;
+}
+.ap-empty {
+  text-align:center; color:var(--text3);
+  font-size:12px; padding:14px 8px; font-style:italic;
+}
+
+/* ── Item ────────────────────────────────────────── */
+.ap-item {
+  display:flex; align-items:center; gap:7px;
+  padding:7px 10px; background:var(--bg3);
+  border:1px solid var(--border); border-radius:var(--radius-sm);
+  transition:border-color .15s;
+}
+.ap-item:hover { border-color:var(--accent); }
+.ap-item-text  { flex:1; font-size:13px; font-weight:600; color:var(--text1); }
+.ap-item-text.disabled { color:var(--text3); text-decoration:line-through; }
+.ap-item-badge {
+  font-size:11px; padding:2px 7px; border-radius:99px;
+  background:var(--bg2); border:1px solid var(--border); color:var(--text2);
+}
+.ap-item-badge.on  { border-color:var(--green); color:var(--green); background:rgba(52,201,126,.1); }
+.ap-item-badge.off { border-color:var(--red);   color:var(--red);   background:rgba(240,80,96,.08); }
+.ap-item-actions { display:flex; gap:4px; flex-shrink:0; }
+
+/* QA / Synonym kengaytirilgan */
+.ap-item-qa, .ap-item-syn { flex-direction:column; align-items:stretch; gap:5px; }
+.ap-qa-header { display:flex; align-items:center; gap:6px; }
+.ap-qa-key { flex:1; font-size:12px; font-weight:700; color:var(--accent); }
+.ap-qa-use {
+  font-size:11px; color:var(--text3);
+  background:var(--bg2); border-radius:99px; padding:1px 7px;
+}
+.ap-qa-answer {
+  font-size:12px; color:var(--text2); line-height:1.5;
+  padding:5px 8px; background:var(--bg2);
+  border-radius:5px; border-left:3px solid var(--green);
+  word-break:break-word;
+}
+
+/* ── Tugmalar ────────────────────────────────────── */
+.ap-btn {
+  background:none; border:1px solid var(--border);
+  border-radius:5px; cursor:pointer;
+  font-size:13px; padding:3px 7px;
+  transition:all .15s; line-height:1.3;
+}
+.ap-btn-edit:hover { border-color:var(--yellow); background:rgba(240,192,64,.1); }
+.ap-btn-del:hover  { border-color:var(--red);    background:rgba(240,80,96,.1);  }
+
+/* ── Real-vaqt test ──────────────────────────────── */
+.ap-test-row { display:flex; gap:6px; align-items:center; }
+.ap-test-row .form-input { flex:1; padding:8px 11px; font-size:13px; }
+
+.ap-test-result {
+  background:var(--bg3); border:1.5px solid var(--border);
+  border-radius:var(--radius); padding:10px 12px;
+  animation:msgIn .2s ease;
+}
+.atr-source {
+  font-size:11px; font-weight:700; margin-bottom:6px;
+  text-transform:uppercase; letter-spacing:.4px;
+}
+.atr-source.found    { color:var(--green); }
+.atr-source.notfound { color:var(--text3); }
+.atr-answer {
+  font-size:13px; line-height:1.6;
+  color:var(--text1); word-break:break-word; white-space:pre-wrap;
+}
+.atr-answer.notfound { color:var(--text3); font-style:italic; }
+
+/* Test tarixi */
+.ap-test-history { margin-top:10px; }
+.ath-title {
+  font-size:11px; font-weight:700; color:var(--text3);
+  text-transform:uppercase; letter-spacing:.4px; margin-bottom:6px;
+}
+.ath-item {
+  padding:7px 10px; border-radius:var(--radius-sm);
+  border:1px solid var(--border); margin-bottom:5px; font-size:12px;
+}
+.ath-item.found    { border-color:rgba(52,201,126,.35); background:rgba(52,201,126,.04); }
+.ath-item.notfound { border-color:var(--border); background:var(--bg3); }
+.ath-q { font-weight:700; color:var(--text1); margin-bottom:2px; }
+.ath-s { font-size:10px; color:var(--text3); text-transform:uppercase; letter-spacing:.3px; margin-bottom:3px; }
+.ath-a { color:var(--text2); line-height:1.4; }

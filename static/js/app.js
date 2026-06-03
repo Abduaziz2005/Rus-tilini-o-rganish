@@ -2519,6 +2519,496 @@ function showRpScenarios(){
 }
 
 // ══════════════════════════════════════════════════
+// AI O'QITISH PANELI — to'liq logika
+// ══════════════════════════════════════════════════
+
+// ── Panel holat ───────────────────────────────────
+const Panel = {
+  open:    false,
+  tab:     "qwords",
+  qwords:  [],
+  names:   [],
+  qa:      [],
+  synonyms:[],
+  banned:  [],
+};
+
+// ── Panel ochish / yopish ─────────────────────────
+function openAIPanel(){
+  Panel.open = true;
+  const col    = $("aiPanelCol");
+  const layout = $("chatLayout");
+  const btn    = $("panelOpenBtn");
+  if(col)    col.style.display    = "flex";
+  if(layout) layout.classList.add("panel-open");
+  if(btn){
+    btn.textContent = "🧠 Yopish";
+    btn.onclick     = closeAIPanel;
+  }
+  loadPanelStats();
+  switchApTab(Panel.tab);
+}
+
+function closeAIPanel(){
+  Panel.open = false;
+  const col    = $("aiPanelCol");
+  const layout = $("chatLayout");
+  const btn    = $("panelOpenBtn");
+  if(col)    col.style.display    = "none";
+  if(layout) layout.classList.remove("panel-open");
+  if(btn){
+    btn.textContent = "🧠 O'qitish";
+    btn.onclick     = openAIPanel;
+  }
+}
+
+// ── Tab almashtirish ──────────────────────────────
+function switchApTab(tab, btn){
+  Panel.tab = tab;
+  document.querySelectorAll(".ap-tab")
+    .forEach(b => b.classList.toggle("active", b.dataset.tab === tab));
+  document.querySelectorAll(".ap-section")
+    .forEach(s => s.classList.toggle("active", s.id === `apTab-${tab}`));
+  // Tab ma'lumotlarini yuklash
+  const loaders = {
+    qwords:   loadQWords,
+    names:    loadNames,
+    qa:       loadQA,
+    synonyms: loadSynonyms,
+    banned:   loadBanned,
+    default:  loadDefault,
+    test:     ()=>{},
+  };
+  if(loaders[tab]) loaders[tab]();
+}
+
+// ── Panel statistika ──────────────────────────────
+async function loadPanelStats(){
+  const s = await api("/api/panel/stats");
+  if(!s || s.error) return;
+  $("apStat1").textContent = `❓ ${s.q_words}`;
+  $("apStat2").textContent = `🏷 ${s.names}`;
+  $("apStat3").textContent = `🔗 ${s.qa_pairs}`;
+  $("apStat4").textContent = `♻️ ${s.synonyms}`;
+  $("apStat5").textContent = `🚫 ${s.banned}`;
+}
+
+// ══════════════════════════════════════════════════
+// 1. SAVOL SO'ZLAR
+// ══════════════════════════════════════════════════
+async function loadQWords(){
+  const list = await api("/api/panel/qwords");
+  Panel.qwords = list || [];
+  const el = $("qwList"); if(!el) return;
+  if(!list?.length){
+    el.innerHTML = `<div class="ap-empty">Hali savol so'z yo'q. Yuqoridan qo'shing.</div>`;
+    return;
+  }
+  el.innerHTML = list.map(w => `
+    <div class="ap-item" id="qwi-${w.id}">
+      <span class="ap-item-text ${w.enabled ? '' : 'disabled'}">${w.word}</span>
+      <span class="ap-item-badge">${w.lang === 'ru' ? '🇷🇺' : '🇺🇿'}</span>
+      <div class="ap-item-actions">
+        <button class="ap-btn ap-btn-toggle ${w.enabled ? 'on' : 'off'}"
+                onclick="toggleQWord(${w.id}, this)"
+                title="${w.enabled ? 'O\'chirish' : 'Yoqish'}">
+          ${w.enabled ? '✅' : '⭕'}
+        </button>
+        <button class="ap-btn ap-btn-del" onclick="deleteQWord(${w.id})" title="O'chirish">🗑</button>
+      </div>
+    </div>`).join("");
+  // datalist yangilash
+  _updateQWDatalist();
+}
+
+async function addQWord(){
+  const inp  = $("qwInput");
+  const lang = $("qwLang")?.value || "uz";
+  const word = inp?.value.trim().toLowerCase();
+  if(!word){ toast("So'z kiriting","warn"); return; }
+  const r = await api("/api/panel/qwords", {
+    method: "POST",
+    body: JSON.stringify({ word, lang }),
+  });
+  if(r?.ok){
+    toast(`✅ "${word}" qo'shildi`, "success", 1500);
+    if(inp) inp.value = "";
+    loadQWords(); loadPanelStats();
+  } else {
+    toast(r?.error || "❌ Xatolik", "error");
+  }
+}
+
+async function deleteQWord(id){
+  await api(`/api/panel/qwords/${id}`, { method: "DELETE" });
+  $(`qwi-${id}`)?.remove();
+  loadPanelStats();
+  toast("🗑 O'chirildi", "info", 1200);
+}
+
+async function toggleQWord(id, btn){
+  const r = await api(`/api/panel/qwords/${id}/toggle`, { method: "POST" });
+  if(!r?.ok) return;
+  const item = $(`qwi-${id}`);
+  if(!item) return;
+  const txt  = item.querySelector(".ap-item-text");
+  if(r.enabled){
+    txt?.classList.remove("disabled");
+    btn.className  = "ap-btn ap-btn-toggle on";
+    btn.textContent = "✅";
+    btn.title       = "O'chirish";
+  } else {
+    txt?.classList.add("disabled");
+    btn.className  = "ap-btn ap-btn-toggle off";
+    btn.textContent = "⭕";
+    btn.title       = "Yoqish";
+  }
+}
+
+function _updateQWDatalist(){
+  const dl = $("qwDatalist"); if(!dl) return;
+  dl.innerHTML = Panel.qwords.map(w => `<option value="${w.word}">`).join("");
+}
+
+// ══════════════════════════════════════════════════
+// 2. NOMLAR
+// ══════════════════════════════════════════════════
+async function loadNames(){
+  const list = await api("/api/panel/names");
+  Panel.names = list || [];
+  const el = $("nmList"); if(!el) return;
+  if(!list?.length){
+    el.innerHTML = `<div class="ap-empty">Hali nom yo'q. Yuqoridan qo'shing.</div>`;
+    _updateNMDatalist();
+    return;
+  }
+  el.innerHTML = list.map(n => `
+    <div class="ap-item" id="nmi-${n.id}">
+      <span class="ap-item-text">${n.name}</span>
+      ${n.q_words ? `<span class="ap-item-badge">${n.q_words}</span>` : ""}
+      <div class="ap-item-actions">
+        <button class="ap-btn ap-btn-del" onclick="deleteName(${n.id})" title="O'chirish">🗑</button>
+      </div>
+    </div>`).join("");
+  _updateNMDatalist();
+}
+
+async function addName(){
+  const inp  = $("nmInput");
+  const name = inp?.value.trim().toLowerCase();
+  if(!name){ toast("Nom kiriting","warn"); return; }
+  const r = await api("/api/panel/names", {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
+  if(r?.ok){
+    toast(`✅ "${name}" qo'shildi`, "success", 1500);
+    if(inp) inp.value = "";
+    loadNames(); loadPanelStats();
+  } else {
+    toast(r?.error || "❌ Xatolik", "error");
+  }
+}
+
+async function deleteName(id){
+  if(!confirm("Bu nomni va unga bog'liq barcha ma'lumotlarni o'chirasizmi?")) return;
+  await api(`/api/panel/names/${id}`, { method: "DELETE" });
+  $(`nmi-${id}`)?.remove();
+  loadPanelStats();
+  toast("🗑 O'chirildi", "info", 1200);
+}
+
+function _updateNMDatalist(){
+  const dl = $("nmDatalist"); if(!dl) return;
+  dl.innerHTML = Panel.names.map(n => `<option value="${n.name}">`).join("");
+}
+
+// ══════════════════════════════════════════════════
+// 3. SAVOL + NOM JUFTLIGI (Ma'lumot)
+// ══════════════════════════════════════════════════
+async function loadQA(){
+  const list = await api("/api/panel/qa");
+  Panel.qa   = list || [];
+  const el   = $("qaList"); if(!el) return;
+  if(!list?.length){
+    el.innerHTML = `<div class="ap-empty">Hali ma'lumot juftligi yo'q.</div>`;
+    return;
+  }
+  el.innerHTML = list.map(p => `
+    <div class="ap-item ap-item-qa" id="qai-${p.id}">
+      <div class="ap-qa-header">
+        <span class="ap-qa-key">❓ ${p.q_word} + 🏷 ${p.name}</span>
+        <span class="ap-qa-use" title="Ishlatilgan soni">${p.use_count}x</span>
+        <div class="ap-item-actions">
+          <button class="ap-btn ap-btn-edit" onclick="editQA(${p.id})">✏️</button>
+          <button class="ap-btn ap-btn-del"  onclick="deleteQA(${p.id})">🗑</button>
+        </div>
+      </div>
+      <div class="ap-qa-answer">${p.answer}</div>
+    </div>`).join("");
+
+  // Formga datalist yangilash
+  _updateQWDatalist();
+  _updateNMDatalist();
+}
+
+async function saveQA(){
+  const qw  = ($("qaQWord")?.value  || "").trim().toLowerCase();
+  const nm  = ($("qaName")?.value   || "").trim().toLowerCase();
+  const ans = ($("qaAnswer")?.value || "").trim();
+  if(!qw || !nm || !ans){
+    toast("Barcha maydonlarni to'ldiring","warn"); return;
+  }
+  const btn = document.querySelector("#apTab-qa .btn-primary");
+  if(btn){ btn.disabled = true; btn.textContent = "⏳..."; }
+  const r = await api("/api/panel/qa", {
+    method: "POST",
+    body: JSON.stringify({ q_word: qw, name: nm, answer: ans }),
+  });
+  if(btn){ btn.disabled = false; btn.textContent = "💾 Saqlash"; }
+  if(r?.ok){
+    toast(`✅ "${qw} + ${nm}" saqlandi`, "success", 1800);
+    $("qaQWord").value = "";
+    $("qaName").value  = "";
+    $("qaAnswer").value= "";
+    loadQA(); loadNames(); loadQWords(); loadPanelStats();
+  } else {
+    toast(r?.error || "❌ Xatolik", "error");
+  }
+}
+
+function editQA(id){
+  const p = Panel.qa.find(x => x.id === id);
+  if(!p) return;
+  $("qaQWord").value  = p.q_word;
+  $("qaName").value   = p.name;
+  $("qaAnswer").value = p.answer;
+  $("qaQWord").focus();
+  toast("✏️ Tahrirlash uchun ma'lumotlar forma ga yuklandi","info",2000);
+}
+
+async function deleteQA(id){
+  await api(`/api/panel/qa/${id}`, { method: "DELETE" });
+  $(`qai-${id}`)?.remove();
+  loadPanelStats();
+  toast("🗑 O'chirildi","info",1200);
+}
+
+// ══════════════════════════════════════════════════
+// 4. SINONIMLAR
+// ══════════════════════════════════════════════════
+async function loadSynonyms(){
+  const list = await api("/api/panel/synonyms");
+  Panel.synonyms = list || [];
+  const el   = $("synList"); if(!el) return;
+  if(!list?.length){
+    el.innerHTML = `<div class="ap-empty">Hali sinonim guruhi yo'q.</div>`;
+    return;
+  }
+  el.innerHTML = list.map(g => `
+    <div class="ap-item ap-item-syn" id="syni-${g.id}">
+      <div class="ap-qa-header">
+        <span class="ap-qa-key">♻️ ${g.group_name}</span>
+        <div class="ap-item-actions">
+          <button class="ap-btn ap-btn-edit" onclick="editSynonym(${g.id})">✏️</button>
+          <button class="ap-btn ap-btn-del"  onclick="deleteSynonym(${g.id})">🗑</button>
+        </div>
+      </div>
+      <div style="font-size:12px;color:var(--text3);margin:3px 0">
+        ${(g.synonyms_list||[]).map(s=>`<code>${s}</code>`).join(", ")}
+      </div>
+      <div class="ap-qa-answer">${g.answer}</div>
+    </div>`).join("");
+}
+
+async function saveSynonym(){
+  const name  = ($("synName")?.value   || "").trim();
+  const words = ($("synWords")?.value  || "").trim();
+  const ans   = ($("synAnswer")?.value || "").trim();
+  const eid   = $("synEditId")?.value  || "";
+  if(!words || !ans){ toast("Sinonimlar va javob majburiy","warn"); return; }
+  const synArr = words.split(",").map(s=>s.trim()).filter(Boolean);
+  const r = await api("/api/panel/synonyms", {
+    method: "POST",
+    body: JSON.stringify({
+      id: eid ? parseInt(eid) : undefined,
+      group_name: name || words.split(",")[0].trim(),
+      synonyms:   synArr,
+      answer:     ans,
+    }),
+  });
+  if(r?.ok){
+    toast("✅ Saqlandi","success",1500);
+    ["synName","synWords","synAnswer","synEditId"].forEach(id=>{ const el=$(id); if(el) el.value=""; });
+    loadSynonyms(); loadPanelStats();
+  } else toast(r?.error || "❌ Xatolik","error");
+}
+
+function editSynonym(id){
+  const g = Panel.synonyms.find(x=>x.id===id); if(!g) return;
+  $("synEditId").value  = g.id;
+  $("synName").value    = g.group_name;
+  $("synWords").value   = (g.synonyms_list||[]).join(", ");
+  $("synAnswer").value  = g.answer;
+  $("synName").focus();
+  toast("✏️ Tahrirlash uchun yuklandi","info",1800);
+}
+
+async function deleteSynonym(id){
+  await api(`/api/panel/synonyms/${id}`,{method:"DELETE"});
+  $(`syni-${id}`)?.remove();
+  loadPanelStats(); toast("🗑 O'chirildi","info",1200);
+}
+
+// ══════════════════════════════════════════════════
+// 5. TAQIQLANGAN SO'ZLAR
+// ══════════════════════════════════════════════════
+async function loadBanned(){
+  const list = await api("/api/panel/banned");
+  Panel.banned = list || [];
+  const el   = $("banList"); if(!el) return;
+  if(!list?.length){
+    el.innerHTML = `<div class="ap-empty">Hali taqiqlangan so'z yo'q.</div>`;
+    return;
+  }
+  el.innerHTML = list.map(b => `
+    <div class="ap-item" id="bani-${b.id}">
+      <div class="ap-qa-header">
+        <span class="ap-qa-key">🚫 ${b.word}</span>
+        <span class="ap-item-badge ${b.enabled ? 'on' : 'off'}">${b.enabled ? 'Faol':'Nofaol'}</span>
+        <div class="ap-item-actions">
+          <button class="ap-btn ap-btn-edit" onclick="editBanned(${b.id})">✏️</button>
+          <button class="ap-btn ap-btn-del"  onclick="deleteBanned(${b.id})">🗑</button>
+        </div>
+      </div>
+      <div class="ap-qa-answer">${b.answer}</div>
+    </div>`).join("");
+}
+
+async function saveBanned(){
+  const word = ($("banWord")?.value   || "").trim().toLowerCase();
+  const ans  = ($("banAnswer")?.value || "").trim();
+  const eid  = $("banEditId")?.value  || "";
+  if(!word || !ans){ toast("So'z va javob majburiy","warn"); return; }
+  const r = await api("/api/panel/banned",{
+    method:"POST",
+    body:JSON.stringify({ id:eid?parseInt(eid):undefined, word, answer:ans }),
+  });
+  if(r?.ok){
+    toast("✅ Saqlandi","success",1500);
+    ["banWord","banAnswer","banEditId"].forEach(id=>{ const el=$(id); if(el) el.value=""; });
+    loadBanned(); loadPanelStats();
+  } else toast(r?.error||"❌ Xatolik","error");
+}
+
+function editBanned(id){
+  const b=Panel.banned.find(x=>x.id===id); if(!b) return;
+  $("banEditId").value  = b.id;
+  $("banWord").value    = b.word;
+  $("banAnswer").value  = b.answer;
+  $("banWord").focus();
+  toast("✏️ Tahrirlash uchun yuklandi","info",1800);
+}
+
+async function deleteBanned(id){
+  await api(`/api/panel/banned/${id}`,{method:"DELETE"});
+  $(`bani-${id}`)?.remove();
+  loadPanelStats(); toast("🗑 O'chirildi","info",1200);
+}
+
+// ══════════════════════════════════════════════════
+// 6. STANDART JAVOB
+// ══════════════════════════════════════════════════
+async function loadDefault(){
+  const r = await api("/api/panel/default");
+  const el = $("defaultText"); if(!el) return;
+  el.value = r?.text || "";
+}
+
+async function saveDefault(){
+  const text = ($("defaultText")?.value || "").trim();
+  if(!text){ toast("Matn bo'sh bo'lmasin","warn"); return; }
+  const r = await api("/api/panel/default",{
+    method:"POST", body:JSON.stringify({text}),
+  });
+  if(r?.ok) toast("✅ Standart javob saqlandi","success");
+  else      toast("❌ Xatolik","error");
+}
+
+// ══════════════════════════════════════════════════
+// 7. REAL-VAQT TEST
+// ══════════════════════════════════════════════════
+const _testHistory = [];
+
+async function runPanelTest(){
+  const inp = $("testInput");
+  const msg = inp?.value.trim();
+  if(!msg){ toast("Xabar kiriting","warn"); return; }
+
+  const resEl  = $("testResult");
+  const srcEl  = $("testSource");
+  const ansEl  = $("testAnswer");
+  resEl.style.display = "block";
+  srcEl.textContent   = "⏳ Tekshirilmoqda...";
+  ansEl.textContent   = "";
+
+  const r = await api("/api/panel/test",{
+    method:"POST", body:JSON.stringify({message:msg}),
+  });
+
+  const sourceMap = {
+    banned:      "🚫 Taqiqlangan so'z",
+    math:        "🧮 Matematika",
+    synonym:     "♻️ Sinonim guruhi",
+    qa_pair:     "🔗 Savol+Nom juftligi",
+    qa_name_only:"🏷 Faqat nom",
+    default:     "💬 Standart javob",
+    panel:       "🧠 Panel",
+  };
+
+  if(r?.ok){
+    const label   = sourceMap[r.source] || r.source;
+    const found   = r.found;
+    srcEl.textContent   = `${found ? "✅" : "⚪"} Manba: ${label}`;
+    srcEl.className     = `atr-source ${found ? "found":"notfound"}`;
+    ansEl.textContent   = r.answer;
+    ansEl.className     = `atr-answer ${found ? "found":"notfound"}`;
+
+    // Tarixga qo'shish
+    _testHistory.unshift({ msg, answer:r.answer, source:label, found });
+    if(_testHistory.length > 8) _testHistory.pop();
+    _renderTestHistory();
+  } else {
+    srcEl.textContent = "❌ Server xatosi";
+    ansEl.textContent = r?.error || "";
+  }
+}
+
+function _renderTestHistory(){
+  const el = $("testHistory"); if(!el) return;
+  if(!_testHistory.length){
+    el.innerHTML = ""; return;
+  }
+  el.innerHTML = `
+    <div class="ath-title">📋 Test tarixi</div>
+    ${_testHistory.map(t=>`
+      <div class="ath-item ${t.found?'found':'notfound'}">
+        <div class="ath-q">${t.msg}</div>
+        <div class="ath-s">${t.source}</div>
+        <div class="ath-a">${t.answer.slice(0,80)}${t.answer.length>80?"...":""}</div>
+      </div>`).join("")}`;
+}
+
+// ── navigate orqali panel yuklanishi ──────────────
+// loadChatHistory ga qo'shimcha
+const _origLoadChat = loadChatHistory;
+async function loadChatHistory(){
+  await _origLoadChat();
+  // Agar panel ochiq bo'lsa, statsni yangilash
+  if(Panel.open) loadPanelStats();
+}
+
+// ══════════════════════════════════════════════════
 // CLOCK — Real-vaqt soat va dars eslatmasi
 // ══════════════════════════════════════════════════
 function startClockChecker(){

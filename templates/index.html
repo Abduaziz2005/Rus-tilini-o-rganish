@@ -459,20 +459,358 @@
 <!-- ── CHAT PAGE ── -->
 <section class="page" id="page-chat">
 
-  <!-- ── HEADER ── -->
-  <div class="page-header">
-    <h1>🤖 AI Suhbat</h1>
-    <div class="header-actions">
-      <span id="chatOfflineBadge" class="offline-badge" style="display:none">📵 Offline</span>
-      <!-- TTS global toggle -->
-      <button id="ttsGlobalBtn" class="btn btn-ghost btn-sm tts-global-btn"
-              onclick="ttsToggleGlobal()" title="Ovozli o'qishni yoq/o'chir">
-        🔊 Ovoz: <span id="ttsGlobalLabel">ON</span>
-      </button>
-      <button class="btn btn-ghost btn-sm" onclick="toggleChatSettings()">⚙️ Sozlamalar</button>
-      <button class="btn btn-ghost btn-sm" onclick="clearChat()">🗑</button>
-    </div>
-  </div>
+  <!-- ══════════════════════════════════════════════
+       CHAT + O'NG PANEL ikki ustunli tuzilma
+  ══════════════════════════════════════════════ -->
+  <div class="chat-layout" id="chatLayout">
+
+    <!-- ─────────────── CHAP: asosiy suhbat ─────────────── -->
+    <div class="chat-main-col" id="chatMainCol">
+
+      <!-- HEADER -->
+      <div class="page-header" style="margin-bottom:8px">
+        <h1>🤖 AI Suhbat</h1>
+        <div class="header-actions">
+          <span id="chatOfflineBadge" class="offline-badge" style="display:none">📵 Offline</span>
+          <button id="ttsGlobalBtn" class="btn btn-ghost btn-sm tts-global-btn"
+                  onclick="ttsToggleGlobal()" title="Ovozli o'qish">
+            🔊 <span id="ttsGlobalLabel">ON</span>
+          </button>
+          <button class="btn btn-ghost btn-sm" onclick="toggleChatSettings()">⚙️</button>
+          <!-- 🧠 PANEL OCHISH TUGMASI -->
+          <button id="panelOpenBtn" class="btn btn-primary btn-sm panel-open-btn"
+                  onclick="openAIPanel()" title="AI o'qitish panelini ochish">
+            🧠 O'qitish
+          </button>
+          <button class="btn btn-ghost btn-sm" onclick="clearChat()">🗑</button>
+        </div>
+      </div>
+
+      <!-- SOZLAMALAR -->
+      <div id="chatSettingsPanel" class="chat-settings-panel" style="display:none">
+        <div class="csp-row">
+          <div class="csp-group">
+            <label class="csp-label">📊 Daraja</label>
+            <div class="csp-btns" id="cspLevel">
+              <button class="csp-btn active" data-val="beginner"     onclick="setChatSetting('level','beginner',this)">🟢 Boshlang'ich</button>
+              <button class="csp-btn" data-val="intermediate" onclick="setChatSetting('level','intermediate',this)">🟡 O'rta</button>
+              <button class="csp-btn" data-val="advanced"    onclick="setChatSetting('level','advanced',this)">🔴 Yuqori</button>
+            </div>
+          </div>
+          <div class="csp-group">
+            <label class="csp-label">🎭 Shaxsiyat</label>
+            <div class="csp-btns" id="cspPersonality">
+              <button class="csp-btn active" data-val="teacher" onclick="setChatSetting('personality','teacher',this)">👨‍🏫 O'qituvchi</button>
+              <button class="csp-btn" data-val="friend"  onclick="setChatSetting('personality','friend',this)">😊 Do'st</button>
+              <button class="csp-btn" data-val="strict"  onclick="setChatSetting('personality','strict',this)">📐 Qattiq</button>
+            </div>
+          </div>
+        </div>
+        <div class="csp-row">
+          <div class="csp-group">
+            <label class="csp-label">💬 Rejim</label>
+            <div class="csp-btns" id="cspMode">
+              <button class="csp-btn active" data-val="text"   onclick="switchChatMode('text',this)">⌨️ Matnli</button>
+              <button class="csp-btn" data-val="choice" onclick="switchChatMode('choice',this)">🔘 Tugmali</button>
+            </div>
+          </div>
+          <div class="csp-group">
+            <label class="csp-label">🔊 Ovoz (TTS)</label>
+            <div class="csp-btns" id="cspTts">
+              <button class="csp-btn active" data-val="on"  onclick="setChatSetting('tts','on',this)">🔊 Yoqiq</button>
+              <button class="csp-btn" data-val="off" onclick="setChatSetting('tts','off',this)">🔇 O'chiq</button>
+            </div>
+            <div style="margin-top:6px;display:flex;align-items:center;gap:8px">
+              <label style="font-size:11px;color:var(--text3)">Tezlik:</label>
+              <input type="range" id="ttsSpeedRange" min="0.5" max="1.5" step="0.1" value="0.9"
+                     oninput="ttsSpeedChange(this.value)" style="flex:1;accent-color:var(--accent)">
+              <span id="ttsSpeedLabel" style="font-size:11px;color:var(--text2);min-width:28px">0.9x</span>
+            </div>
+          </div>
+        </div>
+        <div class="csp-row">
+          <div class="csp-group" style="flex:2">
+            <label class="csp-label">📂 Mavzu</label>
+            <div class="csp-btns" id="cspTopic">
+              <button class="csp-btn active" data-val="free"     onclick="setChatTopic('free',this)">✨ Erkin</button>
+              <button class="csp-btn" data-val="greet"    onclick="setChatTopic('greet',this)">👋 Salomlashish</button>
+              <button class="csp-btn" data-val="travel"   onclick="setChatTopic('travel',this)">✈️ Sayohat</button>
+              <button class="csp-btn" data-val="food"     onclick="setChatTopic('food',this)">🍎 Ovqat</button>
+              <button class="csp-btn" data-val="family"   onclick="setChatTopic('family',this)">👨‍👩‍👧 Oila</button>
+              <button class="csp-btn" data-val="weather"  onclick="setChatTopic('weather',this)">🌤️ Ob-havo</button>
+              <button class="csp-btn" data-val="numbers"  onclick="setChatTopic('numbers',this)">🔢 Raqamlar</button>
+              <button class="csp-btn" data-val="hobbies"  onclick="setChatTopic('hobbies',this)">🎯 Qiziqishlar</button>
+              <button class="csp-btn" data-val="school"   onclick="setChatTopic('school',this)">🏫 Maktab</button>
+              <button class="csp-btn" data-val="work"     onclick="setChatTopic('work',this)">💼 Ish</button>
+              <button class="csp-btn" data-val="cinema"   onclick="setChatTopic('cinema',this)">🎬 Kino</button>
+              <button class="csp-btn" data-val="tech"     onclick="setChatTopic('tech',this)">💻 Texno</button>
+            </div>
+            <div id="customTopicWrap" style="margin-top:8px;display:flex;gap:6px">
+              <input type="text" id="customTopicInput" class="form-input"
+                     placeholder="O'z mavzuingizni yozing..."
+                     style="flex:1;font-size:13px;padding:7px 12px"
+                     onkeydown="if(event.key==='Enter')applyCustomTopic()">
+              <button class="btn btn-primary btn-sm" onclick="applyCustomTopic()">✅</button>
+            </div>
+          </div>
+        </div>
+        <div class="csp-row csp-actions">
+          <button class="btn btn-primary btn-sm" onclick="startFreshChat()">🔄 Yangi suhbat</button>
+          <button class="btn btn-ghost btn-sm"   onclick="exportChat()">📥 Eksport</button>
+          <button class="btn btn-ghost btn-sm"   onclick="toggleChatSettings()">✕</button>
+        </div>
+      </div>
+
+      <!-- MAVZU QATORI -->
+      <div class="chat-topic-bar" id="chatTopicBar">
+        <span class="ctb-icon" id="ctbIcon">✨</span>
+        <span class="ctb-label" id="ctbLabel">Erkin suhbat</span>
+        <span class="ctb-level" id="ctbLevel">🟢 Boshlang'ich</span>
+        <div style="margin-left:auto;display:flex;gap:6px;align-items:center">
+          <div class="lang-switch" id="langSwitch">
+            <button class="lang-btn active" data-lang="auto" onclick="setUiLang('auto',this)">🌐</button>
+            <button class="lang-btn" data-lang="uz" onclick="setUiLang('uz',this)">🇺🇿</button>
+            <button class="lang-btn" data-lang="ru" onclick="setUiLang('ru',this)">🇷🇺</button>
+          </div>
+          <span class="ctb-tts" id="ctbTts">🔊</span>
+          <button class="btn btn-ghost btn-sm" style="padding:3px 8px;font-size:11px" onclick="toggleChatSettings()">⚙️</button>
+        </div>
+      </div>
+
+      <!-- REJIM TUGMALARI -->
+      <div class="chat-mode-bar">
+        <button id="modeBtnText"   class="mode-tab active" onclick="switchChatMode('text')">⌨️ Matnli</button>
+        <button id="modeBtnChoice" class="mode-tab"        onclick="switchChatMode('choice')">🔘 Tugmali</button>
+        <div class="chat-mode-hint" id="chatModeHint">Sen yozasan — AI javob beradi</div>
+      </div>
+
+      <!-- XABARLAR MAYDONI -->
+      <div class="chat-messages" id="chatMessages">
+        <div class="chat-msg assistant">
+          <div class="msg-avatar">🤖</div>
+          <div class="msg-body">
+            <div class="msg-bubble">
+              Salom! Men — Alex! 🇷🇺🇺🇿<br>
+              <span class="msg-uz">Rus va o'zbek tilida gaplashishingiz mumkin!</span><br>
+              <span class="msg-hint">🧠 O'qitish tugmasi orqali meni yangi narsalar o'rgatishingiz mumkin!</span>
+            </div>
+            <div class="msg-actions">
+              <button class="tts-msg-btn" onclick="ttsSpeakEl(this)"
+                      data-text="Привет! Я ваш помощник Алекс!" title="Eshitish">🔊</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- DYNAMIC ACTION TUGMALAR -->
+      <div id="actionArea" class="action-area" style="display:none">
+        <div class="action-hint" id="actionHint">Tanlovingizni bosing:</div>
+        <div class="action-btns" id="actionBtns"></div>
+      </div>
+
+      <!-- TEACH INPUT (inline) -->
+      <div id="teachInputArea" class="teach-input-area" style="display:none">
+        <div class="tia-header">
+          <span class="tia-icon">🧠</span>
+          <span class="tia-title" id="tiaTitle">AI ga o'rgatish</span>
+          <button class="tia-close" onclick="closeTeachInput()">✕</button>
+        </div>
+        <div class="tia-question" id="tiaQuestion"></div>
+        <div class="tia-row">
+          <input type="text" id="tiaAnswerInput" class="form-input"
+                 placeholder="Javobni yozing..."
+                 onkeydown="if(event.key==='Enter')confirmTeach()">
+          <button class="btn btn-primary btn-sm" onclick="confirmTeach()">✅ O'rgat</button>
+          <button class="btn btn-ghost btn-sm"   onclick="closeTeachInput()">✕</button>
+        </div>
+      </div>
+
+      <!-- TUGMALI REJIM -->
+      <div id="choiceArea" class="choice-area" style="display:none">
+        <div class="choice-hint">👆 Javobingizni tanlang: <kbd>1</kbd>–<kbd>4</kbd></div>
+        <div class="choice-btns" id="choiceBtns"></div>
+        <button class="btn btn-ghost btn-sm choice-skip" onclick="skipChoice()">⏭ O'tkazish</button>
+      </div>
+
+      <!-- MATNLI INPUT -->
+      <div id="textInputArea" class="chat-input-area">
+        <div class="chat-input-wrap">
+          <button class="chat-tool-btn" onclick="insertPhrase()" title="Tayyor ibora">💬</button>
+          <button class="chat-tool-btn" id="micBtn" onclick="toggleMic()" title="Mikrofon">🎤</button>
+          <input type="text" id="chatInput" class="chat-input"
+                 placeholder="Yozing... (rus yoki o'zbek tilida)"
+                 onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChat();}">
+          <button class="chat-tool-btn" onclick="clearChatInput()" title="Tozalash">✕</button>
+          <button class="chat-send-btn" onclick="sendChat()">➤</button>
+        </div>
+        <div class="chat-quick-phrases">
+          <span class="qp-label">Tez:</span>
+          <button class="qp-btn" onclick="insertText('Я не понимаю.')">Tushunmadim</button>
+          <button class="qp-btn" onclick="insertText('Повторите, пожалуйста.')">Qayta ayting</button>
+          <button class="qp-btn" onclick="insertText('Как это по-русски?')">Ruscha?</button>
+          <button class="qp-btn" onclick="insertText('Что значит ')">Nima degani?</button>
+          <button class="qp-btn" onclick="insertText('Меня зовут ')">Ismim...</button>
+          <button class="qp-btn" onclick="insertText('Мени текшир!')">Test ber!</button>
+        </div>
+      </div>
+
+    </div><!-- /chat-main-col -->
+
+    <!-- ─────────────── O'NG: AI O'QITISH PANELI ─────────────── -->
+    <aside class="ai-panel-col" id="aiPanelCol" style="display:none">
+
+      <!-- Panel header -->
+      <div class="ap-header">
+        <div class="ap-title">🧠 AI O'qitish Paneli</div>
+        <div class="ap-stats" id="apStats">
+          <span id="apStat1" class="ap-stat-chip" title="Savol so'zlar">❓ 0</span>
+          <span id="apStat2" class="ap-stat-chip" title="Nomlar">🏷 0</span>
+          <span id="apStat3" class="ap-stat-chip" title="Juftliklar">🔗 0</span>
+          <span id="apStat4" class="ap-stat-chip" title="Sinonimlar">♻️ 0</span>
+          <span id="apStat5" class="ap-stat-chip" title="Taqiqlangan">🚫 0</span>
+        </div>
+        <!-- Panel YOPISH tugmasi -->
+        <button class="ap-close-btn" onclick="closeAIPanel()" title="Panelni yopish">✕ Yopish</button>
+      </div>
+
+      <!-- Tab bar -->
+      <div class="ap-tabs" id="apTabs">
+        <button class="ap-tab active" data-tab="qwords"   onclick="switchApTab('qwords',this)">❓ Savol</button>
+        <button class="ap-tab" data-tab="names"    onclick="switchApTab('names',this)">🏷 Nomlar</button>
+        <button class="ap-tab" data-tab="qa"       onclick="switchApTab('qa',this)">🔗 Ma'lumot</button>
+        <button class="ap-tab" data-tab="synonyms" onclick="switchApTab('synonyms',this)">♻️ Sinonim</button>
+        <button class="ap-tab" data-tab="banned"   onclick="switchApTab('banned',this)">🚫 Taqiq</button>
+        <button class="ap-tab" data-tab="default"  onclick="switchApTab('default',this)">💬 Standart</button>
+        <button class="ap-tab" data-tab="test"     onclick="switchApTab('test',this)">🧪 Test</button>
+      </div>
+
+      <!-- ── 1. SAVOL SO'ZLAR ── -->
+      <div class="ap-section active" id="apTab-qwords">
+        <p class="ap-desc">AI javob topish uchun xabardagi kalit so'zlar: <em>nima, kim, qachon...</em></p>
+        <div class="ap-add-row">
+          <input type="text" id="qwInput" class="form-input" placeholder="nima, nega, qanday..."
+                 onkeydown="if(event.key==='Enter')addQWord()">
+          <select id="qwLang" class="form-input" style="max-width:80px">
+            <option value="uz">🇺🇿</option>
+            <option value="ru">🇷🇺</option>
+          </select>
+          <button class="btn btn-primary btn-sm" onclick="addQWord()">➕</button>
+        </div>
+        <div class="ap-list" id="qwList"></div>
+      </div>
+
+      <!-- ── 2. NOMLAR ── -->
+      <div class="ap-section" id="apTab-names">
+        <p class="ap-desc">Dunyo ob'ektlari nomlari. Har nom savol so'zlar bilan bog'lanadi.</p>
+        <div class="ap-add-row">
+          <input type="text" id="nmInput" class="form-input" placeholder="mashina, poytaxt..."
+                 onkeydown="if(event.key==='Enter')addName()">
+          <button class="btn btn-primary btn-sm" onclick="addName()">➕</button>
+        </div>
+        <div class="ap-list" id="nmList"></div>
+      </div>
+
+      <!-- ── 3. SAVOL+NOM JUFTLIGI (Ma'lumot) ── -->
+      <div class="ap-section" id="apTab-qa">
+        <p class="ap-desc">Savol so'z + nom birikmasi uchun aniq javob. Qayta kiritilsa eskisi yangilanadi.</p>
+        <div class="ap-form" id="qaForm">
+          <div class="ap-form-row">
+            <label>❓ Savol so'z</label>
+            <input type="text" id="qaQWord" class="form-input" placeholder="nima"
+                   list="qwDatalist">
+            <datalist id="qwDatalist"></datalist>
+          </div>
+          <div class="ap-form-row">
+            <label>🏷 Nom</label>
+            <input type="text" id="qaName" class="form-input" placeholder="mashina"
+                   list="nmDatalist">
+            <datalist id="nmDatalist"></datalist>
+          </div>
+          <div class="ap-form-row">
+            <label>💬 Javob</label>
+            <textarea id="qaAnswer" class="form-input" rows="3"
+                      placeholder="Masalan: Bugatti — eng tez mashina!"></textarea>
+          </div>
+          <button class="btn btn-primary" style="width:100%" onclick="saveQA()">💾 Saqlash</button>
+        </div>
+        <div class="ap-list" id="qaList" style="margin-top:12px"></div>
+      </div>
+
+      <!-- ── 4. SINONIMLAR ── -->
+      <div class="ap-section" id="apTab-synonyms">
+        <p class="ap-desc">Bir xil ma'noli so'zlar guruhi. Qaysi biri yozilsa ham bir javob qaytadi.</p>
+        <div class="ap-form">
+          <div class="ap-form-row">
+            <label>🏷 Guruh nomi</label>
+            <input type="text" id="synName" class="form-input" placeholder="Salom guruhi">
+          </div>
+          <div class="ap-form-row">
+            <label>♻️ Sinonimlar (vergul bilan)</label>
+            <input type="text" id="synWords" class="form-input"
+                   placeholder="salom, assalom, привет, hello">
+          </div>
+          <div class="ap-form-row">
+            <label>💬 Javob</label>
+            <textarea id="synAnswer" class="form-input" rows="2"
+                      placeholder="Vaalaykum assalom!"></textarea>
+          </div>
+          <input type="hidden" id="synEditId">
+          <button class="btn btn-primary" style="width:100%" onclick="saveSynonym()">💾 Saqlash</button>
+        </div>
+        <div class="ap-list" id="synList" style="margin-top:12px"></div>
+      </div>
+
+      <!-- ── 5. TAQIQLANGAN SO'ZLAR ── -->
+      <div class="ap-section" id="apTab-banned">
+        <p class="ap-desc">Bu so'z xabarda uchrasa maxsus javob qaytariladi.</p>
+        <div class="ap-form">
+          <div class="ap-form-row">
+            <label>🚫 So'z</label>
+            <input type="text" id="banWord" class="form-input" placeholder="taqiqlangan so'z">
+          </div>
+          <div class="ap-form-row">
+            <label>💬 Maxsus javob</label>
+            <textarea id="banAnswer" class="form-input" rows="2"
+                      placeholder="Bu mavzuga javob bera olmayman."></textarea>
+          </div>
+          <input type="hidden" id="banEditId">
+          <button class="btn btn-primary" style="width:100%" onclick="saveBanned()">💾 Saqlash</button>
+        </div>
+        <div class="ap-list" id="banList" style="margin-top:12px"></div>
+      </div>
+
+      <!-- ── 6. STANDART JAVOB ── -->
+      <div class="ap-section" id="apTab-default">
+        <p class="ap-desc">Hech narsa topilmaganda beriluvchi javob matni.</p>
+        <div class="ap-form">
+          <textarea id="defaultText" class="form-input" rows="4"
+                    placeholder="Kechirasiz, bu savolga javobim yo'q..."></textarea>
+          <button class="btn btn-primary" style="width:100%;margin-top:8px"
+                  onclick="saveDefault()">💾 Standart javobni saqlash</button>
+        </div>
+      </div>
+
+      <!-- ── 7. REAL-VAQT TEST ── -->
+      <div class="ap-section" id="apTab-test">
+        <p class="ap-desc">Qo'shilgan ma'lumotni darhol sinab ko'ring. Saqlash shart emas.</p>
+        <div class="ap-test-row">
+          <input type="text" id="testInput" class="form-input"
+                 placeholder="nima mashina? yoki 2+3..."
+                 onkeydown="if(event.key==='Enter')runPanelTest()">
+          <button class="btn btn-primary btn-sm" onclick="runPanelTest()">🧪 Test</button>
+        </div>
+        <div id="testResult" class="ap-test-result" style="display:none">
+          <div class="atr-source" id="testSource"></div>
+          <div class="atr-answer" id="testAnswer"></div>
+        </div>
+        <div class="ap-test-history" id="testHistory"></div>
+      </div>
+
+    </aside><!-- /ai-panel-col -->
+
+  </div><!-- /chat-layout -->
+
+</section>
 
   <!-- ── SOZLAMALAR PANEL ── -->
   <div id="chatSettingsPanel" class="chat-settings-panel" style="display:none">
