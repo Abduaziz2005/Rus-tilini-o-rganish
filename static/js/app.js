@@ -1811,38 +1811,171 @@ async function deleteLesson(id){
 // ══════════════════════════════════════════════════
 // PROGRESS PAGE
 // ══════════════════════════════════════════════════
-async function loadProgress(){
-  const [stats, history, weekReport, goalsReport, adaptStats] = await Promise.all([
-    api("/api/stats"),
-    api("/api/history?limit=20"),
-    api("/api/weekly-report"),
-    api("/api/goals/report"),
-    api("/api/adaptive/stats"),
-  ]);
-  if(stats.error) return;
+// ══════════════════════════════════════════════════
+// PROGRESS v2 — Charts, Streak Banner, Radar Chart
+// ══════════════════════════════════════════════════
+const Charts = { week:null, growth:null, radar:null, study:null };
+let _weekData  = null;
+let _radarData = null;
+const _catLabels = {
+  greeting:"👋 Salomlashish", numbers:"🔢 Raqamlar", colors:"🎨 Ranglar",
+  family:"👨‍👩‍👧 Oila", food:"🍎 Ovqat", verbs:"⚡ Fe'llar",
+  adjectives:"🌟 Sifatlar", travel:"✈️ Sayohat", work:"💼 Ish",
+  health:"🏥 Sog'liq", nature:"🌿 Tabiat", time_ext:"⏰ Vaqt",
+  emotions:"😊 His", navigation:"🗺️ Yo'l", introduction:"🤝 Tanishish",
+  transport:"🚗 Transport", animals:"🐾 Hayvon", clothing:"👗 Kiyim",
+  school:"🏫 Maktab", sport:"⚽ Sport", math:"🔢 Math",
+  body:"🫀 Tana", house:"🏠 Uy", weather:"🌤️ Ob-havo", places:"🏛️ Joylar",
+};
 
-  // ── 1. STREAK KARTOCHKA ───────────────────────
-  const streak    = weekReport?.streak  || 0;
-  const streakEl  = $("streakCard");
+function showStreakBanner(notif){
+  if(!notif) return;
+  const banner=$("streakNotifBanner"); if(!banner) return;
+  const iconMap={info:"ℹ️",success:"🔥",gold:"🏆",warn:"⏰"};
+  $("snbIcon").textContent=iconMap[notif.type]||"🔥";
+  $("snbMsg").textContent=notif.msg;
+  banner.className=`streak-notif-banner snb-${notif.type}`;
+  banner.style.display="flex";
+  clearTimeout(banner._t);
+  banner._t=setTimeout(()=>{banner.style.display="none";},8000);
+}
+
+function buildWeekChart(days,metric="xp"){
+  const canvas=$("weekChart"); if(!canvas||!window.Chart) return;
+  if(Charts.week){Charts.week.destroy();Charts.week=null;}
+  const M={
+    xp:     {key:"xp",     color:"rgba(79,142,247,0.75)", border:"#4f8ef7",label:"XP"},
+    minutes:{key:"minutes",color:"rgba(52,201,126,0.75)", border:"#34c97e",label:"Daqiqa"},
+    words:  {key:"words",  color:"rgba(240,192,64,0.75)", border:"#f0c040",label:"So'z"},
+  };
+  const m=M[metric]||M.xp;
+  const dt=days.map(d=>d[m.key]||0);
+  Charts.week=new Chart(canvas,{
+    type:"bar",
+    data:{labels:days.map(d=>d.day),datasets:[{
+      label:m.label,data:dt,
+      backgroundColor:dt.map(v=>v>0?m.color:"rgba(255,255,255,0.05)"),
+      borderColor:m.border,borderWidth:2,borderRadius:6,
+    }]},
+    options:{responsive:true,
+      plugins:{legend:{display:false},
+        tooltip:{callbacks:{label:ctx=>`${ctx.raw} ${m.label}`}}},
+      scales:{
+        y:{beginAtZero:true,ticks:{color:"#9ba3b8",maxTicksLimit:5},grid:{color:"#2a2f40"}},
+        x:{ticks:{color:"#9ba3b8"},grid:{display:false}},
+      }},
+  });
+}
+
+function switchWeekTab(metric,btn){
+  document.querySelectorAll(".week-tab").forEach(b=>b.classList.remove("active"));
+  btn.classList.add("active");
+  if(_weekData) buildWeekChart(_weekData,metric);
+}
+
+function buildGrowthChart(lh){
+  const canvas=$("growthChart"); if(!canvas||!window.Chart) return;
+  if(Charts.growth){Charts.growth.destroy();Charts.growth=null;}
+  if(!lh?.length) return;
+  const items=lh.slice(-30);
+  const step=Math.max(1,Math.floor(items.length/6));
+  const labels=items.map((d,i)=>i%step===0?d.date.slice(5):"");
+  const xpData=items.map(d=>d.xp||0);
+  const thresholds=[
+    {y:200, label:"Boshlang'ich",color:"rgba(52,201,126,0.35)"},
+    {y:500, label:"O'rta",       color:"rgba(79,142,247,0.35)"},
+    {y:1000,label:"O'rta-yuqori",color:"rgba(240,192,64,0.35)"},
+    {y:2000,label:"Ilg'or",      color:"rgba(240,140,64,0.35)"},
+    {y:4000,label:"Ustoz",       color:"rgba(168,120,247,0.35)"},
+  ];
+  Charts.growth=new Chart(canvas,{
+    type:"line",
+    data:{labels,datasets:[
+      {label:"XP",data:xpData,borderColor:"#4f8ef7",backgroundColor:"rgba(79,142,247,0.1)",
+       borderWidth:2.5,pointRadius:3,fill:true,tension:0.35},
+      ...thresholds.map(t=>({label:t.label,data:Array(items.length).fill(t.y),
+        borderColor:t.color,borderWidth:1,borderDash:[5,5],pointRadius:0,fill:false})),
+    ]},
+    options:{responsive:true,interaction:{mode:"index",intersect:false},
+      plugins:{legend:{display:true,labels:{filter:i=>i.text==="XP",color:"#9ba3b8",font:{size:11}}},
+        tooltip:{callbacks:{label:ctx=>ctx.datasetIndex===0?`${ctx.raw} XP`:`${ctx.dataset.label}: ${ctx.raw}`}}},
+      scales:{
+        y:{beginAtZero:false,ticks:{color:"#9ba3b8",maxTicksLimit:6},grid:{color:"#2a2f40"}},
+        x:{ticks:{color:"#9ba3b8",maxRotation:0},grid:{display:false}},
+      }},
+  });
+  const colors=["#34c97e","#4f8ef7","#f0c040","#f08c40","#a878f7"];
+  const legEl=$("growthLegend");
+  if(legEl) legEl.innerHTML=thresholds.map((t,i)=>`
+    <span class="growth-leg-item">
+      <span style="background:${colors[i]};width:18px;height:2px;display:inline-block;
+        vertical-align:middle;border-radius:2px;margin-right:4px"></span>
+      ${t.y} XP — ${t.label}</span>`).join("");
+}
+
+function buildRadarChart(radarData){
+  const canvas=$("radarChart"); if(!canvas||!window.Chart) return;
+  if(Charts.radar){Charts.radar.destroy();Charts.radar=null;}
+  const items=radarData.filter(r=>r.total>0).slice(0,12);
+  if(!items.length) return;
+  const labels=items.map(r=>(_catLabels[r.category]||r.category).replace(/[^\w\s']/gu,"").trim().slice(0,12));
+  const data  =items.map(r=>r.total>0?Math.min(100,Math.round(r.correct/r.total*100)):0);
+  Charts.radar=new Chart(canvas,{
+    type:"radar",
+    data:{labels,datasets:[{label:"O'zlashtirish %",data,
+      backgroundColor:"rgba(79,142,247,0.18)",borderColor:"#4f8ef7",
+      borderWidth:2,pointBackgroundColor:"#4f8ef7",pointRadius:3}]},
+    options:{responsive:true,
+      scales:{r:{beginAtZero:true,max:100,
+        ticks:{stepSize:25,color:"#9ba3b8",font:{size:10},backdropColor:"transparent"},
+        grid:{color:"#2a2f40"},pointLabels:{color:"#9ba3b8",font:{size:10}},
+        angleLines:{color:"#2a2f40"}}},
+      plugins:{legend:{display:false},
+        tooltip:{callbacks:{label:ctx=>`${ctx.raw}% o'zlashtirilgan`}}}},
+  });
+}
+
+function switchRadarView(view,btn){
+  document.querySelectorAll(".radar-view-btn").forEach(b=>b.classList.remove("active"));
+  btn.classList.add("active");
+  const bv=$("radarBarView"),cv=$("radarChartView");
+  if(view==="bar"){
+    if(bv) bv.style.display="block";
+    if(cv) cv.style.display="none";
+  } else {
+    if(bv) bv.style.display="none";
+    if(cv) cv.style.display="block";
+    if(_radarData) buildRadarChart(_radarData);
+  }
+}
+
+async function loadProgress(){
+  const [stats,history,weekReport,goalsReport,adaptStats]=await Promise.all([
+    api("/api/stats"),api("/api/history?limit=20"),api("/api/weekly-report"),
+    api("/api/goals/report"),api("/api/adaptive/stats"),
+  ]);
+  if(stats?.error) return;
+
+  if(weekReport?.streak_notif) showStreakBanner(weekReport.streak_notif);
+
+  const streak=weekReport?.streak||0;
+  const streakEl=$("streakCard");
   if(streakEl){
-    $("streakCount").textContent = streak;
-    $("streakFire").textContent  = streak>=7?"🔥🔥":streak>=3?"🔥":"❄️";
-    // Oxirgi 7 kun kataklari
-    const days = weekReport?.days || [];
-    $("streakDays").innerHTML = days.map(d=>`
-      <div class="streak-day ${d.xp>0?'active':''}">
-        <div class="sd-dot"></div>
-        <div class="sd-label">${d.day}</div>
+    $("streakCount").textContent=streak;
+    $("streakFire").textContent=streak>=14?"🏆":streak>=7?"🔥🔥":streak>=3?"🔥":"❄️";
+    const wDays=weekReport?.days||[];
+    $("streakDays").innerHTML=wDays.map(d=>`
+      <div class="streak-day ${d.xp>0?"active":""}">
+        <div class="sd-dot"></div><div class="sd-label">${d.day}</div>
       </div>`).join("");
-    if(streak>=7)  streakEl.classList.add("streak-gold");
+    streakEl.classList.remove("streak-gold","streak-fire");
+    if(streak>=7) streakEl.classList.add("streak-gold");
     else if(streak>=3) streakEl.classList.add("streak-fire");
-    else           streakEl.classList.remove("streak-gold","streak-fire");
   }
 
-  // ── 2. MAQSADLAR ─────────────────────────────
-  if(goalsReport && !goalsReport.error){
-    const {goals,today,pcts,avg_pct,message} = goalsReport;
-    $("goalsList").innerHTML = [
+  if(goalsReport&&!goalsReport.error){
+    const {goals,today,pcts,avg_pct,message}=goalsReport;
+    $("goalsList").innerHTML=[
       {icon:"📖",label:"So'zlar",done:today.words,  goal:goals.words,  pct:pcts.words,  color:"var(--green)"},
       {icon:"⏱", label:"Daqiqa", done:today.minutes,goal:goals.minutes,pct:pcts.minutes,color:"var(--accent)"},
       {icon:"⭐", label:"XP",     done:today.xp,     goal:goals.xp,     pct:pcts.xp,    color:"var(--yellow)"},
@@ -1855,22 +1988,21 @@ async function loadProgress(){
         </div>
         <span class="goal-pct" style="color:${g.color}">${g.pct}%</span>
       </div>`).join("");
-    $("goalsMsg").textContent  = message;
-    $("goalsMsg").className    = `goals-msg ${avg_pct>=100?"goals-done":avg_pct>=70?"goals-good":"goals-pending"}`;
+    $("goalsMsg").textContent=message;
+    $("goalsMsg").className=`goals-msg ${avg_pct>=100?"goals-done":avg_pct>=70?"goals-good":"goals-pending"}`;
   }
 
-  // ── 3. DARAJA KARTOCHKA ───────────────────────
-  const levels=[
+  const lvlList=[
     {name:"Yangi boshlovchi",min:0,   max:200,  icon:"🌱",color:"var(--green)"},
-    {name:"Boshlang'ich",     min:200, max:500,  icon:"📗",color:"var(--green)"},
-    {name:"O'rta daraja",    min:500, max:1000, icon:"📘",color:"var(--accent)"},
-    {name:"O'rta-yuqori",    min:1000,max:2000, icon:"📙",color:"var(--yellow)"},
-    {name:"Ilg'or",          min:2000,max:4000, icon:"📕",color:"var(--orange)"},
-    {name:"Ustoz",           min:4000,max:9999, icon:"🏆",color:"var(--purple)"},
+    {name:"Boshlang'ich",    min:200, max:500,  icon:"📗",color:"var(--green)"},
+    {name:"O'rta daraja",   min:500, max:1000, icon:"📘",color:"var(--accent)"},
+    {name:"O'rta-yuqori",   min:1000,max:2000, icon:"📙",color:"var(--yellow)"},
+    {name:"Ilg'or",         min:2000,max:4000, icon:"📕",color:"var(--orange)"},
+    {name:"Ustoz",          min:4000,max:9999, icon:"🏆",color:"var(--purple)"},
   ];
-  const xp   = stats.total_xp||0;
-  const lvl  = levels.find(l=>xp>=l.min&&xp<l.max)||levels[levels.length-1];
-  const lvlPct = Math.min(100,Math.round((xp-lvl.min)/(lvl.max-lvl.min)*100));
+  const xp=stats.total_xp||0;
+  const lvl=lvlList.find(l=>xp>=l.min&&xp<l.max)||lvlList[lvlList.length-1];
+  const lvlPct=Math.min(100,Math.round((xp-lvl.min)/(lvl.max-lvl.min)*100));
   $("levelCard").innerHTML=`
     <div class="lc-icon">${lvl.icon}</div>
     <div class="lc-info">
@@ -1883,112 +2015,98 @@ async function loadProgress(){
       <div class="muted" style="font-size:11px">joriy daraja</div>
     </div>`;
 
-  // ── 4. HAFTALIK HISOBOT ───────────────────────
-  if(weekReport && weekReport.days){
-    const maxXp = Math.max(1,...weekReport.days.map(d=>d.xp));
-    $("weekBars").innerHTML = weekReport.days.map(d=>{
-      const h = Math.max(4, Math.round(d.xp/maxXp*80));
-      const active = d.xp > 0;
-      return `
-        <div class="week-bar-col">
-          <div class="week-bar-tooltip">${d.xp} XP · ${d.words} so'z · ${d.minutes} min</div>
-          <div class="week-bar-fill ${active?'active':''}" style="height:${h}px"></div>
-          <div class="week-bar-label">${d.day}</div>
-        </div>`;
-    }).join("");
-    $("weekTotalXp").textContent    = weekReport.total_xp    || 0;
-    $("weekTotalMin").textContent   = weekReport.total_min   || 0;
-    $("weekTotalWords").textContent = weekReport.total_words || 0;
-    $("weekActiveDays").textContent = weekReport.active_days || 0;
+  if(weekReport?.days){
+    _weekData=weekReport.days;
+    buildWeekChart(_weekData,"xp");
+    $("weekTotalXp").textContent    =weekReport.total_xp    ||0;
+    $("weekTotalMin").textContent   =weekReport.total_min   ||0;
+    $("weekTotalWords").textContent =weekReport.total_words ||0;
+    $("weekActiveDays").textContent =weekReport.active_days ||0;
   }
 
-  // ── 5. RADAR GRID (bilim xaritasi) ───────────
-  const catLabels = {
-    greeting:"👋 Salomlashish",numbers:"🔢 Raqamlar",colors:"🎨 Ranglar",
-    family:"👨‍👩‍👧 Oila",food:"🍎 Ovqat",verbs:"⚡ Fe'llar",adjectives:"🌟 Sifatlar",
-    travel:"✈️ Sayohat",work:"💼 Ish",health:"🏥 Sog'liq",nature:"🌿 Tabiat",
-    time_ext:"⏰ Vaqt",emotions:"😊 His",navigation:"🗺️ Yo'l",
-    introduction:"🤝 Tanishish",transport:"🚗 Transport",animals:"🐾 Hayvon",
-    clothing:"👗 Kiyim",school:"🏫 Maktab",sport:"⚽ Sport",math:"🔢 Math",
-    body:"🫀 Tana",house:"🏠 Uy",weather:"🌤️ Ob-havo",places:"🏛️ Joylar",
-  };
-  const radar = adaptStats?.all || [];
-  const radarEl = $("radarGrid");
-  if(radarEl && radar.length){
-    radarEl.innerHTML = radar.map(r=>{
-      const pct  = r.total>0 ? Math.min(100,Math.round(r.correct/r.total*100)) : 0;
-      const bar_color = pct>=70?"var(--green)":pct>=40?"var(--yellow)":"var(--red)";
-      return `
-        <div class="radar-item">
-          <div class="radar-label">${catLabels[r.category]||r.category}</div>
-          <div class="radar-bar-wrap">
-            <div class="radar-bar" style="width:${pct}%;background:${bar_color}"></div>
-          </div>
-          <div class="radar-pct" style="color:${bar_color}">${pct}%</div>
-        </div>`;
-    }).join("");
-  } else if(radarEl){
-    radarEl.innerHTML=`<div class="empty-state"><p>Hali test ishlamadingiz. <b>Adaptiv Test</b> ni sinab ko'ring!</p></div>`;
+  if(weekReport?.level_history) buildGrowthChart(weekReport.level_history);
+
+  const radarSrc=weekReport?.radar||adaptStats?.all||[];
+  _radarData=radarSrc;
+  const radarEl=$("radarGrid");
+  if(radarEl){
+    if(radarSrc.length){
+      const sorted=[...radarSrc].sort((a,b)=>{
+        const pa=a.total>0?a.correct/a.total:0;
+        const pb=b.total>0?b.correct/b.total:0;
+        return pb-pa;
+      });
+      radarEl.innerHTML=sorted.map(r=>{
+        const pct=r.total>0?Math.min(100,Math.round(r.correct/r.total*100)):0;
+        const bc=pct>=70?"var(--green)":pct>=40?"var(--yellow)":"var(--red)";
+        return `
+          <div class="radar-item" title="${r.correct}✅ ${r.wrong||(r.total-r.correct)}❌">
+            <div class="radar-label">${_catLabels[r.category]||r.category}</div>
+            <div class="radar-bar-wrap"><div class="radar-bar" style="width:${pct}%;background:${bc}"></div></div>
+            <div class="radar-pct" style="color:${bc}">${pct}%</div>
+          </div>`;
+      }).join("");
+    } else {
+      radarEl.innerHTML=`<div class="empty-state"><div class="empty-icon">🕸</div>
+        <p>Hali statistika yo'q.<br>So'z o'rganish yoki test ishlashni boshlang!</p></div>`;
+    }
   }
 
-  // Kuchsiz tomonlar
-  const weakList = $("weakList");
-  const weakest  = adaptStats?.weakest || [];
+  const weakList=$("weakList");
+  const weakItems=radarSrc.filter(r=>r.total>0)
+    .map(r=>({...r,err:(r.wrong||(r.total-r.correct))/Math.max(r.total,1)}))
+    .sort((a,b)=>b.err-a.err).slice(0,5);
   if(weakList){
-    weakList.innerHTML = weakest.length
-      ? weakest.map(w=>`
-          <div class="weak-item">
-            <span class="weak-cat">${catLabels[w.category]||w.category}</span>
-            <span class="weak-stat">${w.correct}✅ / ${w.wrong}❌</span>
+    weakList.innerHTML=weakItems.length
+      ? weakItems.map(r=>{
+          const p=r.total>0?Math.min(100,Math.round(r.correct/r.total*100)):0;
+          return `<div class="weak-item">
+            <span class="weak-cat">${_catLabels[r.category]||r.category}</span>
+            <span class="weak-pct" style="color:${p>=50?"var(--yellow)":"var(--red)"}">${p}%</span>
+            <span class="weak-stat">${r.correct}✅ ${r.wrong||(r.total-r.correct)}❌</span>
             <button class="btn btn-sm btn-primary" onclick="navigate('adaptive')">Mashq</button>
-          </div>`).join("")
-      : `<div class="muted">Hali yetarli statistika yo'q.</div>`;
+          </div>`;
+        }).join("")
+      : `<div class="muted" style="padding:8px">Kuchsiz tomonlarni aniqlash uchun test ishlang!</div>`;
   }
 
-  // ── 6. STATISTIKA GRID ────────────────────────
   $("fullStatsGrid").innerHTML=`
     <div class="stat-card"><div class="stat-val">${stats.total_words||0}</div><div class="stat-lbl">📖 Jami so'zlar</div></div>
     <div class="stat-card"><div class="stat-val" style="color:var(--green)">${stats.learned_words||0}</div><div class="stat-lbl">✅ O'rganilgan</div></div>
     <div class="stat-card"><div class="stat-val" style="color:var(--yellow)">${stats.due_reviews||0}</div><div class="stat-lbl">🔁 Takrorlash</div></div>
-    <div class="stat-card"><div class="stat-val" style="color:var(--purple)">${weekReport?.streak||0}</div><div class="stat-lbl">🔥 Streak</div></div>
-    <div class="stat-card"><div class="stat-val" style="color:var(--orange)">${xp}</div><div class="stat-lbl">⭐ Jami XP</div></div>
-    <div class="stat-card"><div class="stat-val" style="color:var(--accent)">${stats.total_sessions||0}</div><div class="stat-lbl">📚 Sessiyalar</div></div>
+    <div class="stat-card"><div class="stat-val" style="color:var(--orange)">${streak}</div><div class="stat-lbl">🔥 Streak</div></div>
+    <div class="stat-card"><div class="stat-val" style="color:var(--accent)">${xp}</div><div class="stat-lbl">⭐ Jami XP</div></div>
+    <div class="stat-card"><div class="stat-val" style="color:var(--purple)">${stats.total_sessions||0}</div><div class="stat-lbl">📚 Sessiyalar</div></div>
     <div class="stat-card"><div class="stat-val" style="color:var(--green)">${stats.grammar_rules||0}</div><div class="stat-lbl">📝 Grammatika</div></div>
     <div class="stat-card"><div class="stat-val" style="color:var(--red)">${stats.missed_lessons||0}</div><div class="stat-lbl">⚠ O'tkazilgan</div></div>`;
 
-  // ── 7. HAFTALIK GRAFIK (Chart.js) ────────────
-  const chartDays  = weekReport?.days || [];
-  const labels     = chartDays.map(d=>d.day);
-  const minuteData = chartDays.map(d=>d.minutes);
-  const canvas     = $("studyChart");
-  if(State.chartInstance){ State.chartInstance.destroy(); State.chartInstance=null; }
-  if(canvas && window.Chart){
-    State.chartInstance = new Chart(canvas,{
+  if(Charts.study){Charts.study.destroy();Charts.study=null;}
+  const studyCanvas=$("studyChart");
+  if(studyCanvas&&window.Chart&&weekReport?.days){
+    const d=weekReport.days;
+    const mn=d.map(x=>x.minutes||0);
+    Charts.study=new Chart(studyCanvas,{
       type:"bar",
-      data:{
-        labels,
-        datasets:[{
-          label:"Daqiqa", data:minuteData,
-          backgroundColor:"rgba(79,142,247,0.6)",
-          borderColor:"#4f8ef7", borderWidth:2, borderRadius:6,
-        }],
-      },
+      data:{labels:d.map(x=>x.day),datasets:[{label:"Daqiqa",data:mn,
+        backgroundColor:mn.map(v=>v>0?"rgba(79,142,247,0.6)":"rgba(255,255,255,0.05)"),
+        borderColor:"#4f8ef7",borderWidth:2,borderRadius:6}]},
       options:{responsive:true,plugins:{legend:{display:false}},
-        scales:{y:{beginAtZero:true,ticks:{color:"#9ba3b8"},grid:{color:"#2a2f40"}},
-                x:{ticks:{color:"#9ba3b8"},grid:{display:false}}}},
+        scales:{
+          y:{beginAtZero:true,ticks:{color:"#9ba3b8",maxTicksLimit:5},grid:{color:"#2a2f40"}},
+          x:{ticks:{color:"#9ba3b8"},grid:{display:false}},
+        }},
     });
   }
 
-  // ── 8. SO'Z O'ZLASHTIRILISHI ─────────────────
   const masteryData=[
-    {label:"🟢 Boshlang'ich so'zlar",key:"beginner",  color:"var(--green)"},
-    {label:"🟡 O'rta so'zlar",       key:"intermediate",color:"var(--yellow)"},
-    {label:"🔴 Yuqori so'zlar",      key:"advanced",   color:"var(--red)"},
+    {label:"🟢 Boshlang'ich",key:"beginner",    color:"var(--green)"},
+    {label:"🟡 O'rta",       key:"intermediate",color:"var(--yellow)"},
+    {label:"🔴 Yuqori",      key:"advanced",    color:"var(--red)"},
   ];
-  const wStats = await Promise.all(masteryData.map(async m=>{
-    const total   = await api(`/api/words?level=${m.key}&limit=1000`);
-    const learned = (total||[]).filter(w=>(w.times_correct||0)>0).length;
-    return {...m, total:(total||[]).length, learned};
+  const wStats=await Promise.all(masteryData.map(async m=>{
+    const ws=await api(`/api/words?level=${m.key}&limit=1000`);
+    const learned=(ws||[]).filter(w=>(w.times_correct||0)>0).length;
+    return {...m,total:(ws||[]).length,learned};
   }));
   $("masteryBreakdown").innerHTML=wStats.map(m=>{
     const p=m.total>0?Math.round(m.learned/m.total*100):0;
@@ -1999,15 +2117,14 @@ async function loadProgress(){
     </div>`;
   }).join("");
 
-  // ── 9. O'QISH TARIXI ─────────────────────────
-  const histEl = $("historyTable");
-  if(history && history.length){
+  const histEl=$("historyTable");
+  if(history?.length){
     histEl.innerHTML=history.slice(0,15).map(h=>`
       <div class="history-row">
         <span>${lessonTypeEmoji(h.lesson_type)}</span>
         <span style="flex:1">${{vocabulary:"Lug'at",grammar:"Grammatika",
-          flashcards:"Kartochkalar",quiz:"Test",chat:"AI Suhbat",
-          game:"O'yin",adaptive:"Adaptiv",roleplay:"Roleplay"}[h.lesson_type]||h.lesson_type}</span>
+          flashcards:"Kartochkalar",quiz:"Test",chat:"AI Suhbat",game:"O'yin",
+          adaptive:"Adaptiv",roleplay:"Roleplay"}[h.lesson_type]||h.lesson_type}</span>
         <span style="color:var(--text3)">${secToMin(h.duration_sec||0)}</span>
         <span style="color:var(--yellow)">${h.score||0}%</span>
         <span style="color:var(--purple)">+${h.xp_earned||0} XP</span>
@@ -2017,9 +2134,6 @@ async function loadProgress(){
     histEl.innerHTML=`<div class="empty-state" style="padding:20px"><p>O'qish tarixi yo'q</p></div>`;
   }
 }
-
-// ── Maqsad modal ──────────────────────────────────
-function openGoalsModal(){ openModal("goalsModal"); loadGoalsForm(); }
 
 async function loadGoalsForm(){
   const r = await api("/api/goals");

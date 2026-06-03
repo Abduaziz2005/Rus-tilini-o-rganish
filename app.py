@@ -2295,15 +2295,88 @@ class Database:
         active_days  = sum(1 for d in days if d["xp"] > 0)
         streak       = self.streak_current()
 
+        # ── So'zlar o'sishi (30 kunlik) ──────────────
+        word_growth = []
+        for i in range(29, -1, -1):
+            d_str = (today - timedelta(days=i)).strftime("%Y-%m-%d")
+            row   = self._row("SELECT * FROM streak_log WHERE date=?", (d_str,))
+            word_growth.append({
+                "date":  d_str,
+                "words": row["words_learned"] if row else 0,
+            })
+
+        # ── Daraja tarixi (XP kumulyativ 30 kun) ──
+        total_xp_now = (self._row("SELECT total_xp FROM profile WHERE id=1") or {}).get("total_xp", 0)
+        # Har kun XP ni qayta qurish
+        level_history = []
+        levels = [0, 200, 500, 1000, 2000, 4000, 9999]
+        level_names = ["Yangi","Boshlang'ich","O'rta","O'rta-yuqori","Ilg'or","Ustoz"]
+
+        def _xp_to_level(xp):
+            for i, threshold in enumerate(levels[1:]):
+                if xp < threshold:
+                    return i
+            return len(level_names) - 1
+
+        cumulative = total_xp_now
+        # so'nggidan boshlab: kecha_xp dan olishimiz mumkin emas,
+        # streak_log dan taxminiy hisoblaymiz
+        daily_xps = []
+        for i in range(29, -1, -1):
+            d_str = (today - timedelta(days=i)).strftime("%Y-%m-%d")
+            row   = self._row("SELECT xp_earned FROM streak_log WHERE date=?", (d_str,))
+            daily_xps.append(row["xp_earned"] if row else 0)
+
+        # Kumulyativ XP ni qayta hisoblash
+        xp_cumulative = total_xp_now
+        level_points  = []
+        for xp_day in reversed(daily_xps):
+            level_points.insert(0, xp_cumulative)
+            xp_cumulative = max(0, xp_cumulative - xp_day)
+
+        for i, xp_val in enumerate(level_points):
+            d_str = (today - timedelta(days=29-i)).strftime("%Y-%m-%d")
+            lv    = _xp_to_level(xp_val)
+            level_history.append({
+                "date":  d_str,
+                "xp":    xp_val,
+                "level": lv,
+                "level_name": level_names[min(lv, len(level_names)-1)],
+            })
+
+        # ── Radar: so'z statistikasini ham qo'shish ─
+        radar_data = self.adaptive_stats_all()
+        # So'z statistikasidan ham to'ldirish (test bo'lmasa ham ko'rinsin)
+        word_cats = self._rows(
+            "SELECT category, COUNT(*) as total, "
+            "SUM(CASE WHEN times_correct>0 THEN 1 ELSE 0 END) as learned "
+            "FROM words GROUP BY category"
+        )
+        word_cat_map = {r["category"]: r for r in word_cats}
+        existing_cats = {r["category"] for r in radar_data}
+        for wcat in word_cats:
+            if wcat["category"] not in existing_cats and wcat["total"] > 0:
+                pct = round(wcat["learned"] / max(wcat["total"], 1) * 100)
+                radar_data.append({
+                    "category": wcat["category"],
+                    "correct":  wcat["learned"],
+                    "wrong":    wcat["total"] - wcat["learned"],
+                    "total":    wcat["total"],
+                    "pct":      pct,
+                })
+
         return {
-            "days":         days,
-            "total_xp":     total_xp,
-            "total_min":    total_min,
-            "total_words":  total_words,
-            "active_days":  active_days,
-            "streak":       streak,
-            "weakest_cats": worst,
-            "radar":        self.adaptive_stats_all(),
+            "days":          days,
+            "total_xp":      total_xp,
+            "total_min":     total_min,
+            "total_words":   total_words,
+            "active_days":   active_days,
+            "streak":        streak,
+            "weakest_cats":  worst,
+            "radar":         radar_data,
+            "word_growth":   word_growth,
+            "level_history": level_history,
+            "current_xp":    total_xp_now,
         }
 
 
@@ -3171,9 +3244,28 @@ def api_streak_log():
 @require_auth
 def api_weekly_report():
     report = db.weekly_report()
-    # Profil va xotira ham qo'shamiz
     report["profile"] = db.get_profile()
     report["memory"]  = db.memory_all()
+
+    # ── Streak xabarnomasi ──────────────────────
+    streak = report.get("streak", 0)
+    notif  = None
+    if streak == 1:
+        notif = {"type": "info",    "msg": f"🎉 Yangi streak boshlandi! Ertaga ham davom eting!"}
+    elif streak == 3:
+        notif = {"type": "success", "msg": f"🔥 3 kun ketma-ket! Zo'r natija!"}
+    elif streak == 7:
+        notif = {"type": "gold",    "msg": f"🏆 1 hafta uzluksiz! Siz ajoyibsiz!"}
+    elif streak == 14:
+        notif = {"type": "gold",    "msg": f"🌟 2 hafta streak! Ustoz yo'lida!"}
+    elif streak == 30:
+        notif = {"type": "gold",    "msg": f"👑 30 kun streak! Haqiqiy chempion!"}
+    elif streak > 0 and streak % 5 == 0:
+        notif = {"type": "success", "msg": f"🔥 {streak} kun uzluksiz o'qidingiz!"}
+    elif report.get("active_days",0) == 0:
+        notif = {"type": "warn",    "msg": "⏰ Bu hafta hali o'qimadingiz. Bugun boshlang!"}
+
+    report["streak_notif"] = notif
     return jsonify(report)
 
 

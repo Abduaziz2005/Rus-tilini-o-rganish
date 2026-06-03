@@ -800,7 +800,14 @@
     </div>
   </div>
 
-  <!-- ── STREAK VA BUGUNGI MAQSAD ── -->
+  <!-- ══ STREAK XABARNOMASI BANNER ══ -->
+  <div id="streakNotifBanner" class="streak-notif-banner" style="display:none">
+    <span class="snb-icon" id="snbIcon">🔥</span>
+    <span class="snb-msg"  id="snbMsg"></span>
+    <button class="snb-close" onclick="this.parentElement.style.display='none'">✕</button>
+  </div>
+
+  <!-- ══ STREAK + MAQSAD + DARAJA ROW ══ -->
   <div class="progress-top-row">
 
     <!-- Streak kartochka -->
@@ -815,52 +822,95 @@
     <div class="goals-card" id="goalsCard">
       <div class="goals-title">🎯 Bugungi maqsad</div>
       <div class="goals-list" id="goalsList"></div>
-      <div class="goals-msg" id="goalsMsg"></div>
+      <div class="goals-msg"  id="goalsMsg"></div>
     </div>
 
     <!-- Level card -->
     <div id="levelCard" class="level-card"></div>
   </div>
 
-  <!-- ── HAFTALIK HISOBOT ── -->
+  <!-- ══ HAFTALIK HISOBOT (Chart.js bar) ══ -->
   <div class="week-card">
-    <h3>📅 Haftalik faollik</h3>
-    <div class="week-bars" id="weekBars"></div>
+    <div class="week-card-header">
+      <h3>📅 Haftalik faollik</h3>
+      <!-- Tab: XP / Daqiqa / So'z -->
+      <div class="week-tabs" id="weekTabs">
+        <button class="week-tab active" data-metric="xp"      onclick="switchWeekTab('xp',this)">⭐ XP</button>
+        <button class="week-tab"        data-metric="minutes" onclick="switchWeekTab('minutes',this)">⏱ Daqiqa</button>
+        <button class="week-tab"        data-metric="words"   onclick="switchWeekTab('words',this)">📖 So'z</button>
+      </div>
+    </div>
+    <div class="week-chart-wrap">
+      <canvas id="weekChart" height="90"></canvas>
+    </div>
     <div class="week-legend">
-      <span><b id="weekTotalXp">0</b> XP</span>
-      <span><b id="weekTotalMin">0</b> daqiqa</span>
-      <span><b id="weekTotalWords">0</b> so'z</span>
-      <span><b id="weekActiveDays">0</b>/7 faol kun</span>
+      <span>⭐ <b id="weekTotalXp">0</b> XP</span>
+      <span>⏱ <b id="weekTotalMin">0</b> daqiqa</span>
+      <span>📖 <b id="weekTotalWords">0</b> so'z</span>
+      <span>📅 <b id="weekActiveDays">0</b>/7 faol kun</span>
     </div>
   </div>
 
-  <!-- ── RADAR CHART (Kuchli/kuchsiz tomonlar) ── -->
+  <!-- ══ DARAJA O'SISHI GRAFIGI (30 kun) ══ -->
+  <div class="growth-card">
+    <div class="growth-header">
+      <h3>📈 Daraja o'sishi</h3>
+      <span class="muted" style="font-size:12px">So'nggi 30 kun</span>
+    </div>
+    <div class="growth-chart-wrap">
+      <canvas id="growthChart" height="80"></canvas>
+    </div>
+    <div class="growth-legend" id="growthLegend"></div>
+  </div>
+
+  <!-- ══ RADAR CHART (Kuchli/kuchsiz — Chart.js Radar) ══ -->
   <div class="radar-card">
-    <h3>🕸 Bilim xaritasi</h3>
-    <p class="muted" style="font-size:12px;margin-bottom:12px">Har bir kategoriya bo'yicha to'g'ri javoblar foizi</p>
-    <div class="radar-grid" id="radarGrid"></div>
+    <div class="radar-header">
+      <h3>🕸 Bilim xaritasi</h3>
+      <div class="radar-view-btns">
+        <button class="radar-view-btn active" onclick="switchRadarView('bar',this)">📊 Bar</button>
+        <button class="radar-view-btn"        onclick="switchRadarView('radar',this)">🕸 Radar</button>
+      </div>
+    </div>
+    <p class="muted" style="font-size:12px;margin-bottom:12px">
+      Har bir kategoriya bo'yicha o'zlashtirish foizi
+    </p>
+
+    <!-- Bar ko'rinishi (mavjud) -->
+    <div id="radarBarView">
+      <div class="radar-grid" id="radarGrid"></div>
+    </div>
+
+    <!-- Chart.js Radar ko'rinishi -->
+    <div id="radarChartView" style="display:none">
+      <div class="radar-chart-wrap">
+        <canvas id="radarChart"></canvas>
+      </div>
+    </div>
+
+    <!-- Kuchsiz tomonlar -->
     <div class="weak-section">
       <div class="weak-title">⚠️ Kuchsiz tomonlar — ko'proq mashq qiling:</div>
       <div class="weak-list" id="weakList"></div>
     </div>
   </div>
 
-  <!-- ── STATISTIKA GRID ── -->
+  <!-- ══ STATISTIKA GRID ══ -->
   <div class="stats-grid-full" id="fullStatsGrid"></div>
 
-  <!-- ── 7 KUNLIK GRAFIK ── -->
+  <!-- ══ 7 KUNLIK DAQIQA GRAFIGI ══ -->
   <div class="chart-card">
     <h3>📈 So'nggi 7 kunlik faollik (daqiqa)</h3>
     <canvas id="studyChart" height="100"></canvas>
   </div>
 
-  <!-- ── SO'Z O'ZLASHTIRILISHI ── -->
+  <!-- ══ SO'Z O'ZLASHTIRILISHI ══ -->
   <div class="mastery-card">
     <h3>🎯 So'z o'zlashtirilishi</h3>
     <div id="masteryBreakdown"></div>
   </div>
 
-  <!-- ── O'QISH TARIXI ── -->
+  <!-- ══ O'QISH TARIXI ══ -->
   <div class="history-card">
     <h3>🕐 O'qish tarixi</h3>
     <div id="historyTable"></div>
