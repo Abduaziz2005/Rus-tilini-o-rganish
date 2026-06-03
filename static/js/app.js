@@ -112,7 +112,7 @@ function navigate(page){
     grammar: loadGrammar,
     games: loadGameHighscores,
     quiz: ()=>{},
-    chat: loadChatHistory,
+    chat: ()=>{ loadChatHistory(); _updateOfflineBadge(); },
     schedule: loadSchedule,
     progress: loadProgress,
     settings: loadSettings,
@@ -1058,80 +1058,411 @@ async function finishGame(){
 // ══════════════════════════════════════════════════
 // AI CHAT
 // ══════════════════════════════════════════════════
+// ══════════════════════════════════════════════════
+// AI CHAT — TO'LIQ QAYTA YOZILGAN (v2)
+// Ikki rejim: MATNLI (text) + TUGMALI (choice)
+// Offline AI + Online Gemini fallback
+// ══════════════════════════════════════════════════
+
+// ── Chat holat ────────────────────────────────────
+const Chat = {
+  mode:        "text",      // "text" | "choice"
+  level:       "beginner",
+  topic:       "greet",
+  personality: "teacher",
+  isTyping:    false,
+  msgCount:    0,
+};
+
+// ── Sahifani yuklash ──────────────────────────────
 async function loadChatHistory(){
-  const history=await api("/api/chat/history");
-  if(!history||history.error) return;
-  if(!history.length) return;
-  const msgs=$("chatMessages");
-  const existing=msgs.querySelectorAll(".chat-msg:not(:first-child)");
-  existing.forEach(m=>m.remove());
-  const sorted=[...history].reverse();
-  sorted.forEach(h=>{
-    if(h.id) appendChatMsg(h.role, h.content, h.id, h.correction);
+  // Sozlamalarni yuklash
+  const s = await api("/api/chat/settings");
+  if(s && !s.error){
+    if(s.ai_conversation_level) Chat.level       = s.ai_conversation_level;
+    if(s.ai_chat_mode)          Chat.mode        = s.ai_chat_mode;
+    if(s.ai_topic)              Chat.topic       = s.ai_topic;
+    if(s.ai_personality)        Chat.personality = s.ai_personality;
+  }
+  _applyChatSettings();
+
+  // Tarix
+  const history = await api("/api/chat/history");
+  if(history && history.length){
+    const msgs = $("chatMessages");
+    msgs.querySelectorAll(".chat-msg:not(:first-child)").forEach(m=>m.remove());
+    [...history].reverse().forEach(h=>{
+      if(h.id) appendChatMsg(h.role, h.content, h.id, h.correction);
+    });
+    msgs.scrollTop = msgs.scrollHeight;
+  }
+
+  // Internet holati
+  _updateOfflineBadge();
+}
+
+function _applyChatSettings(){
+  // Daraja tugmalari
+  _activateGroup("cspLevel",     Chat.level);
+  _activateGroup("cspPersonality", Chat.personality);
+  _activateGroup("cspMode",      Chat.mode);
+  _activateGroup("cspTopic",     Chat.topic);
+  // Rejim tab
+  _setModeTab(Chat.mode);
+}
+
+function _activateGroup(groupId, val){
+  const el=$(groupId);
+  if(!el) return;
+  el.querySelectorAll(".csp-btn").forEach(b=>{
+    b.classList.toggle("active", b.dataset.val===val);
   });
-  msgs.scrollTop=msgs.scrollHeight;
 }
 
-function appendChatMsg(role, content, id=null, correction=""){
-  const msgs=$("chatMessages");
-  const div=document.createElement("div");
-  div.className=`chat-msg ${role}`;
-  div.innerHTML=`<div>
-    <div class="msg-bubble">${content.replace(/\n/g,"<br>")}</div>
-    ${correction?`<div class="msg-correction">✏️ Tuzatish: ${correction}</div>`:""}
-    ${role==="assistant"&&id?`<div class="msg-edit-btn" onclick="editChatMsg(${id},this)">✏️ Tuzatish qo'shish</div>`:""}
-  </div>`;
+function _setModeTab(mode){
+  $("modeBtnText")  ?.classList.toggle("active", mode==="text");
+  $("modeBtnChoice")?.classList.toggle("active", mode==="choice");
+  $("textInputArea")?.style.setProperty("display", mode==="text"?"flex":"none");
+  $("choiceArea")   ?.style.setProperty("display", mode==="choice"?"flex":"none");
+  const hint = $("chatModeHint");
+  if(hint) hint.textContent = mode==="text"
+    ? "⌨️ Sen yozasan — AI javob beradi"
+    : "🔘 AI yozadi — Sen tugmani bosasan";
+}
+
+function _updateOfflineBadge(){
+  const badge = $("chatOfflineBadge");
+  if(!badge) return;
+  badge.style.display = State.internetAllowed ? "none" : "inline-flex";
+}
+
+// ── Sozlamalar panel ──────────────────────────────
+function toggleChatSettings(){
+  const panel = $("chatSettingsPanel");
+  if(!panel) return;
+  panel.style.display = panel.style.display==="none" ? "block" : "none";
+}
+
+async function setChatSetting(type, val, btn){
+  if(type==="level")       Chat.level       = val;
+  if(type==="topic")       Chat.topic       = val;
+  if(type==="personality") Chat.personality = val;
+  const groupMap = { level:"cspLevel", topic:"cspTopic", personality:"cspPersonality" };
+  if(groupMap[type]) _activateGroup(groupMap[type], val);
+  await api("/api/chat/settings",{method:"POST",body:JSON.stringify({
+    ai_conversation_level: Chat.level,
+    ai_topic:              Chat.topic,
+    ai_personality:        Chat.personality,
+  })});
+}
+
+async function switchChatMode(mode, btn){
+  Chat.mode = mode;
+  _setModeTab(mode);
+  // cspMode grupini yangilash
+  _activateGroup("cspMode", mode);
+  await api("/api/chat/settings",{method:"POST",body:JSON.stringify({ai_chat_mode:mode})});
+  if(mode==="choice"){
+    // Tugmali rejimni boshlash
+    await startChoiceMode();
+  }
+}
+
+// ── Xabar qo'shish (umumiy) ───────────────────────
+function appendChatMsg(role, content, id=null, correction="", isOffline=false){
+  const msgs = $("chatMessages");
+  const div  = document.createElement("div");
+  div.className = `chat-msg ${role}`;
+  const avatar   = role==="assistant" ? "🤖" : "👤";
+  const offTag   = isOffline ? `<span class="msg-offline-tag">📵offline</span>` : "";
+  const corrHTML = correction
+    ? `<div class="msg-correction">✏️ Tuzatish: ${correction}</div>`
+    : "";
+  const editBtn  = (role==="assistant" && id)
+    ? `<button class="msg-edit-btn" onclick="editChatMsg(${id},this)">✏️</button>`
+    : "";
+  const formattedContent = content
+    .replace(/\n/g,"<br>")
+    .replace(/\*\*(.*?)\*\*/g,"<strong>$1</strong>")
+    .replace(/«(.*?)»/g,"<em class='msg-ru'>«$1»</em>");
+
+  div.innerHTML = `
+    <div class="msg-avatar">${avatar}</div>
+    <div class="msg-body">
+      <div class="msg-bubble">${formattedContent}${offTag}</div>
+      ${corrHTML}
+      <div class="msg-actions">${editBtn}</div>
+    </div>`;
   msgs.appendChild(div);
-  msgs.scrollTop=msgs.scrollHeight;
+  msgs.scrollTop = msgs.scrollHeight;
+  Chat.msgCount++;
 }
 
+function _showTyping(){
+  if(Chat.isTyping) return;
+  Chat.isTyping = true;
+  const div = document.createElement("div");
+  div.className = "chat-msg assistant typing-msg";
+  div.id = "typingIndicator";
+  div.innerHTML = `<div class="msg-avatar">🤖</div>
+    <div class="msg-body"><div class="msg-bubble typing-dots">
+      <span></span><span></span><span></span>
+    </div></div>`;
+  $("chatMessages").appendChild(div);
+  $("chatMessages").scrollTop = $("chatMessages").scrollHeight;
+}
+
+function _hideTyping(){
+  Chat.isTyping = false;
+  $("typingIndicator")?.remove();
+}
+
+// ══════════════════════════════════════════════════
+// MATNLI REJIM
+// ══════════════════════════════════════════════════
 async function sendChat(){
-  const inp=$("chatInput");
-  const msg=inp.value.trim();
-  if(!msg) return;
-  if(!State.internetAllowed){ toast("Internet o'chiq — AI bilan suhbat uchun Internet kerak","warn"); return; }
-  inp.value="";
-  appendChatMsg("user",msg);
-  const thinking=document.createElement("div");
-  thinking.className="chat-msg assistant";
-  thinking.id="thinkingMsg";
-  thinking.innerHTML=`<div class="msg-bubble"><span class="spinner"></span> AI yozmoqda...</div>`;
-  $("chatMessages").appendChild(thinking);
-  $("chatMessages").scrollTop=$("chatMessages").scrollHeight;
-  const r=await api("/api/chat",{method:"POST",body:JSON.stringify({message:msg})});
-  thinking.remove();
-  if(r.ok) appendChatMsg("assistant",r.response);
-  else{
-    appendChatMsg("assistant",`❌ ${r.error||"Xatolik yuz berdi"}`);
-    toast("❌ "+(r.error||"AI xatosi"),"error");
+  const inp = $("chatInput");
+  const msg = inp.value.trim();
+  if(!msg || Chat.isTyping) return;
+  inp.value = "";
+  inp.focus();
+
+  appendChatMsg("user", msg);
+  _showTyping();
+
+  const r = await api("/api/chat",{
+    method:"POST",
+    body: JSON.stringify({ message:msg, mode:"text", topic:Chat.topic })
+  });
+  _hideTyping();
+
+  if(r && r.ok){
+    appendChatMsg("assistant", r.response, null, "", r.offline||false);
+    if(r.offline) toast("📵 Offline AI javob berdi","info",2000);
+  } else {
+    appendChatMsg("assistant", `❌ ${r?.error||"Xatolik yuz berdi"}`);
+    toast("❌ "+(r?.error||"AI xatosi"),"error");
   }
   await loadProfile();
 }
 
+function clearChatInput(){
+  const inp = $("chatInput");
+  if(inp){ inp.value=""; inp.focus(); }
+}
+
+function insertText(txt){
+  const inp = $("chatInput");
+  if(!inp) return;
+  inp.value = (inp.value + txt).trimStart();
+  inp.focus();
+}
+
+function insertPhrase(){
+  const phrases = [
+    "Меня зовут ","Я из ","Я живу в ","Мне нравится ","Я люблю ",
+    "Я не понимаю.","Повторите, пожалуйста.","Как это по-русски?",
+    "Что значит ","Я хочу ","У меня есть ","Я работаю в ",
+  ];
+  const phrase = phrases[Math.floor(Math.random()*phrases.length)];
+  insertText(phrase);
+}
+
+// ══════════════════════════════════════════════════
+// TUGMALI REJIM
+// ══════════════════════════════════════════════════
+async function startChoiceMode(){
+  // Tugmali rejimni boshlash — AI savol beradi
+  _showTyping();
+  const r = await api("/api/chat/choices",{
+    method:"POST",
+    body: JSON.stringify({ topic: Chat.topic, level: Chat.level })
+  });
+  _hideTyping();
+
+  if(!r || !r.ok){
+    appendChatMsg("assistant","❌ AI bilan bog'lanib bo'lmadi");
+    return;
+  }
+  appendChatMsg("assistant", r.response, null, "", r.offline||false);
+  if(r.offline) toast("📵 Offline rejim","info",1500);
+  showChoices(r.choices || []);
+}
+
+function showChoices(choices){
+  const area    = $("choiceArea");
+  const btnsEl  = $("choiceBtns");
+  if(!area || !btnsEl) return;
+
+  if(!choices || !choices.length){
+    area.style.display = "none";
+    return;
+  }
+
+  btnsEl.innerHTML = choices.map((c,i) =>
+    `<button class="choice-option" onclick="pickChoice(this,'${c.replace(/'/g,"\\'")}')" data-idx="${i}">
+       <span class="co-num">${i+1}</span>
+       <span class="co-text">${c}</span>
+     </button>`
+  ).join("");
+
+  area.style.display = "flex";
+
+  // Keyboard shortcut: 1,2,3,4
+  area._keyHandler = (e)=>{
+    const n = parseInt(e.key);
+    if(n>=1 && n<=choices.length){
+      const btn = btnsEl.querySelectorAll(".choice-option")[n-1];
+      if(btn) pickChoice(btn, choices[n-1]);
+    }
+  };
+  document.addEventListener("keydown", area._keyHandler);
+}
+
+function _clearChoices(){
+  const area = $("choiceArea");
+  if(!area) return;
+  area.style.display = "none";
+  if(area._keyHandler){
+    document.removeEventListener("keydown", area._keyHandler);
+    area._keyHandler = null;
+  }
+  $("choiceBtns").innerHTML = "";
+}
+
+async function pickChoice(btn, chosenText){
+  if(Chat.isTyping) return;
+  _clearChoices();
+
+  // Tanlangan tugmani highlight qilish
+  btn.classList.add("selected");
+  setTimeout(()=> btn.classList.remove("selected"), 400);
+
+  // Foydalanuvchi xabarini ko'rsatish
+  appendChatMsg("user", chosenText);
+  _showTyping();
+
+  // AI ga yuborish
+  const r = await api("/api/chat",{
+    method:"POST",
+    body: JSON.stringify({ message:chosenText, mode:"choice", topic:Chat.topic })
+  });
+  _hideTyping();
+
+  if(r && r.ok){
+    appendChatMsg("assistant", r.response, null, "", r.offline||false);
+    // Yangi variantlarni ko'rsatish
+    if(r.choices && r.choices.length){
+      showChoices(r.choices);
+    } else {
+      // AI yangi variantlar bermaganda offline variantlar
+      showChoices(_getOfflineChoices());
+    }
+    if(r.offline) toast("📵 Offline AI","info",1500);
+  } else {
+    appendChatMsg("assistant",`❌ ${r?.error||"Xatolik"}`);
+    showChoices(_getOfflineChoices());
+  }
+  await loadProfile();
+}
+
+async function skipChoice(){
+  _clearChoices();
+  if(Chat.isTyping) return;
+  _showTyping();
+  const r = await api("/api/chat/choices",{
+    method:"POST",
+    body: JSON.stringify({ topic:Chat.topic, level:Chat.level })
+  });
+  _hideTyping();
+  if(r && r.ok){
+    appendChatMsg("assistant", r.response, null, "", r.offline||false);
+    showChoices(r.choices||_getOfflineChoices());
+  }
+}
+
+function _getOfflineChoices(){
+  const pool = {
+    greet:   ["Привет! Как дела?","Я из Узбекистана.","Меня зовут ...","Рад познакомиться!"],
+    travel:  ["Где вокзал?","Как доехать?","Это далеко?","Пешком близко."],
+    food:    ["Я люблю плов.","Это вкусно!","Дайте меню.","Сколько стоит?"],
+    family:  ["У меня есть брат.","Моя мама врач.","Нас трое.","Семья большая."],
+    weather: ["Сегодня жарко.","Идёт дождь.","Холодно!","Хорошая погода."],
+    numbers: ["Мне 20 лет.","Десять рублей.","Три человека.","Пятьдесят процентов."],
+    hobbies: ["Я читаю.","Люблю музыку.","Занимаюсь спортом.","Смотрю фильмы."],
+    school:  ["Я студент.","Экзамен завтра.","Любимый предмет...","Учусь хорошо."],
+  };
+  const opts = pool[Chat.topic] || pool.greet;
+  return opts;
+}
+
+// ══════════════════════════════════════════════════
+// UMUMIY CHAT AMALLAR
+// ══════════════════════════════════════════════════
 async function clearChat(){
   if(!confirm("Barcha suhbat tarixini tozalash?")) return;
   await api("/api/chat/clear",{method:"POST"});
-  const msgs=$("chatMessages");
-  const toRemove=msgs.querySelectorAll(".chat-msg:not(:first-child)");
-  toRemove.forEach(m=>m.remove());
+  const msgs = $("chatMessages");
+  msgs.querySelectorAll(".chat-msg:not(:first-child)").forEach(m=>m.remove());
+  _clearChoices();
+  Chat.msgCount = 0;
   toast("🗑 Tozalandi","info");
 }
 
-function editChatMsg(id, btn){
-  const correction=prompt("Tuzatishni kiriting:");
-  if(!correction) return;
-  api("/api/chat/correct",{method:"POST",body:JSON.stringify({id,correction})});
-  const corrDiv=document.createElement("div");
-  corrDiv.className="msg-correction";
-  corrDiv.textContent="✏️ Tuzatish: "+correction;
-  btn.parentNode.insertBefore(corrDiv, btn);
-  btn.remove();
-  toast("✅ Tuzatish saqlandi","success");
+async function startFreshChat(){
+  await clearChat();
+  toggleChatSettings();
+  if(Chat.mode==="choice"){
+    await startChoiceMode();
+  } else {
+    appendChatMsg("assistant",
+      `Salom! Yangi suhbat boshlaymiz! 🇷🇺\nMavzu: ${_topicLabel(Chat.topic)}\nDaraja: ${_levelLabel(Chat.level)}\n\nRus tilida gaplashing!`,
+      null, "", false);
+  }
 }
 
+function _topicLabel(t){
+  const m={greet:"👋 Salomlashish",travel:"✈️ Sayohat",food:"🍎 Ovqat",family:"👨‍👩‍👧 Oila",weather:"🌤️ Ob-havo",numbers:"🔢 Raqamlar",hobbies:"🎯 Qiziqishlar",school:"🏫 Maktab"};
+  return m[t]||t;
+}
+function _levelLabel(l){
+  const m={beginner:"🟢 Boshlang'ich",intermediate:"🟡 O'rta",advanced:"🔴 Yuqori"};
+  return m[l]||l;
+}
+
+function editChatMsg(id, btn){
+  const correction = prompt("Tuzatishni kiriting (AI xatosi yoki izoh):");
+  if(!correction) return;
+  api("/api/chat/correct",{method:"POST",body:JSON.stringify({id,correction})});
+  const corrDiv = document.createElement("div");
+  corrDiv.className = "msg-correction";
+  corrDiv.textContent = "✏️ "+correction;
+  btn.closest(".msg-body").insertBefore(corrDiv, btn.closest(".msg-actions"));
+  btn.remove();
+  toast("✅ Saqlandi","success");
+}
+
+function exportChat(){
+  const msgs = $("chatMessages").querySelectorAll(".chat-msg");
+  let text = "RusLearn — Suhbat tarixi\n"+"─".repeat(40)+"\n\n";
+  msgs.forEach(m=>{
+    const role   = m.classList.contains("user") ? "Men" : "AI";
+    const bubble = m.querySelector(".msg-bubble");
+    if(bubble) text += `[${role}]: ${bubble.innerText}\n\n`;
+  });
+  const blob = new Blob([text],{type:"text/plain;charset=utf-8"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `ruslearn_chat_${new Date().toISOString().slice(0,10)}.txt`;
+  a.click();
+  toast("📥 Yuklab olindi","success");
+}
+
+// saveChatLevel — eski funksiya muvofiqlik uchun saqlanadi
 async function saveChatLevel(){
-  const lvl=$("chatLevelSel").value;
-  await api("/api/settings",{method:"POST",body:JSON.stringify({ai_conversation_level:lvl})});
+  const sel = $("chatLevelSel");
+  if(sel) Chat.level = sel.value;
+  await api("/api/chat/settings",{method:"POST",body:JSON.stringify({ai_conversation_level:Chat.level})});
 }
 
 

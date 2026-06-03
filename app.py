@@ -2305,72 +2305,242 @@ def api_game_score():
 def api_leaderboard():
     return jsonify(db.get_leaderboard(request.args.get("game_type")))
 
-# ── AI Chat ────────────────────────────────────────
-@app.route("/api/chat", methods=["POST"])
-@require_auth
-def api_chat():
-    if db.get_setting("internet_allowed", "on") != "on":
-        return jsonify({"error": "Internet ruxsat etilmagan"}), 403
-    if not GEMINI_API_KEY:
-        return jsonify({"error": "AI API kalit topilmadi. aistudio.google.com dan bepul kalit oling."}), 400
 
-    d = request.get_json()
-    user_msg = d.get("message", "").strip()
-    level = db.get_setting("ai_conversation_level", "beginner")
 
-    # So'nggi 10 ta xabarni olib suhbat tarixi
-    history = db.get_chat_history(10)
+# ── AI Chat helpers ────────────────────────────────
+def _chat_system(level, mode="text"):
+    lvl_hints = {
+        "beginner":     "Juda oddiy va qisqa gaplar ishlatgin. Har bir rus so'z yoniga qavsda o'zbekcha tarjima qo'y.",
+        "intermediate": "O'rta murakkablikdagi gaplar ishlat. Yangi so'zlarni tushuntir.",
+        "advanced":     "To'liq rus tilida gaplash. Grammatika va uslubga e'tibor ber.",
+    }
+    hint = lvl_hints.get(level, lvl_hints["beginner"])
+    base = (
+        "Sen 'RusLearn' ilovasidagi rus tili o'qituvchisi va suhbat sherigiisan.\n"
+        f"Daraja: {level}.\n"
+        f"Til ko'rsatmasi: {hint}\n"
+        "Umumiy qoidalar:\n"
+        "- Foydalanuvchi xato qilsa, xatoni ko'rsat va to'g'risini yoz\n"
+        "- Har javobning oxirida o'zbekcha qisqa tarjima/izoh qo'y\n"
+        "- Javobingni qisqa (3-5 gap) va tushunarli qil\n"
+        "- Suhbatni davom ettirish uchun savol ber\n"
+    )
+    if mode == "choice":
+        base += (
+            "MUHIM: Javobingning eng OXIRIDA foydalanuvchi bosa oladigan 3-4 ta variant ber.\n"
+            "Variantlarni AYNAN quyidagi formatda yoz:\n"
+            "CHOICES: [variant1] | [variant2] | [variant3] | [variant4]\n"
+            "Variantlar rus tilida, qisqa (3-7 so'z).\n"
+        )
+    return base
+
+
+def _build_messages(history, user_msg):
     messages = []
     for h in reversed(history):
         messages.append({"role": h["role"], "content": h["content"]})
     messages.append({"role": "user", "content": user_msg})
+    return messages
 
-    if level == 'beginner':
-        lang_hint = "Oddiy so'zlar va gaplardan foydalanin"
-    else:
-        lang_hint = "Normal rus tilida gaplashing"
-    system = (
-        "Sen rus tili o'qituvchisi va suhbat sherigi bo'lib ishlayapsan.\n"
-        f"Foydalanuvchi daraja: {level}.\n"
-        "Qoidalar:\n"
-        "- Foydalanuvchining rus tilidagi xatolarini tuzat (qisqacha)\n"
-        f"- {lang_hint}\n"
-        "- Har javobda o'zbekcha tarjima qo'shing\n"
-        "- Agar xato qilsa, xatoni ko'rsat va to'g'risini yoz\n"
-        "- Qiziqarli savollar ber, suhbatni davom ettir\n"
-        "- Qisqa va aniq javob ber"
-    )
 
-    response = call_ai(messages, system_prompt=system, max_tokens=500)
+def offline_ai_response(user_msg, level="beginner"):
+    """Internet yo'q bo'lganda ishlaydigan lokal AI (pattern-matching)"""
+    import random
+    msg = user_msg.lower().strip()
+
+    patterns = [
+        (["привет","здравствуй","салам","salom","hello","hi"],
+         "Привет! 👋 Как дела?\n(Salom! Qanday ishlar?)\nRus tilini o'rganishda davom etaylik! 🇷🇺"),
+        (["пока","до свидания","xayr","bye","кет"],
+         "До свидания! 👋 До встречи!\n(Xayr! Ko'rishguncha!)"),
+        (["спасибо","рахмат","rahmat","thanks","рахмет"],
+         "Пожалуйста! 😊 Всегда рад помочь.\n(Iltimos! Har doim yordam berishdan xursandman.)"),
+        (["как дела","как ты","qanday","как жизнь"],
+         "Спасибо, хорошо! А у тебя как дела? 😊\n(Rahmat, yaxshi! Sen qandaysan?)"),
+        (["где","qayerda","qayerga"],
+         "Где? — Qayerda? 📍\nMisol:\n• Где вокзал? (Vokzal qayerda?)\n• Где метро? (Metro qayerda?)\nИдите прямо! (To'g'ri boring!)"),
+        (["цвет","красный","синий","зелёный","rang","qizil","ko'k"],
+         "Цвета — Ranglar 🎨\nКрасный=qizil, Синий=ko'k, Зелёный=yashil\nБелый=oq, Чёрный=qora, Жёлтый=sariq"),
+        (["семья","мама","папа","брат","сестра","oila"],
+         "Семья — Oila 👨‍👩‍👧\nМама=ona, Папа=ota, Брат=aka/uka\nСестра=opa/singil, Бабушка=buvi\nOilangizni ruscha tanishtiring!"),
+        (["еда","хлеб","вода","чай","food","ovqat"],
+         "Еда — Oziq-ovqat 🍎\nХлеб=non, Вода=suv, Молоко=sut\nЧай=choy, Мясо=go'sht, Рыба=baliq"),
+        (["работа","работать","ish","ishlamoq"],
+         "Работа — Ish 💼\nЯ работаю — Men ishlayman\nГде вы работаете? — Qayerda ishlaysiz?\nМоя работа — Mening ishim"),
+        (["не понимаю","tushunmadim","помоги","yordam","не знаю"],
+         "Ёрдам uchun! 💪\nInternetni yoqsangiz, to'liq AI yordamdan foydalanasiz.\nHozir offline rejimda:\n• Grammatika bo'limiga o'ting\n• Lug'atdan so'z qidiring"),
+        (["число","цифра","сколько","raqam","son"],
+         "Числа — Raqamlar 🔢\n1=один 2=два 3=три 4=четыре 5=пять\n6=шесть 7=семь 8=восемь 9=девять 10=десять\n100=сто, 1000=тысяча"),
+        (["время","день","месяц","год","vaqt","kun","oy"],
+         "Время — Vaqt ⏰\nСегодня=bugun, Завтра=ertaga, Вчера=kecha\nУтро=ertalab, День=kunduz, Вечер=kechqurun\nКоторый час? — Soat necha?"),
+        (["погода","дождь","снег","жарко","холодно","ob-havo"],
+         "Погода — Ob-havo 🌤️\nСегодня жарко! (Bugun issiq!)\nИдёт дождь. (Yomg'ir yog'yapti.)\nОчень холодно! (Juda sovuq!)"),
+        (["школа","учёба","студент","экзамен","maktab"],
+         "Учёба — Ta'lim 🏫\nЯ студент. — Men talabaman.\nЗавтра экзамен. — Ertaga imtihon.\nМой любимый предмет... — Sevimli fanimiz..."),
+    ]
+    for keywords, reply in patterns:
+        if any(w in msg for w in keywords):
+            return reply
+
+    # Yo'nalish/harakat so'zlari
+    if any(w in msg for w in ["иду","едет","идти","поехать","bormoq","ketmoq"]):
+        return ("Движение — Harakat 🚶\nЯ иду — Men boraman (yayov)\nЯ еду — Men ketaman (transport)\nКуда вы идёте? — Qayerga borasiz?")
+
+    defaults = {
+        "beginner": [
+            "Хорошо! 😊 Продолжайте!\n(Yaxshi! Davom eting!)\nBiror so'z yoki gap ruscha yozing.",
+            "Понятно! (Tushunarli!) ✅\nEng muhim so'zlar: Да=ha, Нет=yo'q, Хорошо=yaxshi.",
+            "Отлично! ⭐ (Ajoyib!)\nMashq uchun: 'Меня зовут ...' deb yozing.",
+        ],
+        "intermediate": [
+            "Интересно! Давайте продолжим. 🗣️\n(Qiziq! Davom etaylik.)\nQaysi mavzu haqida gaplashmoqchisiz?",
+            "Хорошо сказано! 👍\n(Yaxshi aytildi!)\nGrammatikangiz rivojlanmoqda.",
+        ],
+        "advanced": [
+            "Замечательно! Ваш русский язык очень хороший. 🏆\nПродолжайте практиковаться каждый день!",
+            "Превосходно! Попробуйте более сложные конструкции.\n(Ajoyib! Murakkabroq qurilmalarni sinab ko'ring.)",
+        ],
+    }
+    import random
+    opts = defaults.get(level, defaults["beginner"])
+    return random.choice(opts)
+
+
+def _offline_choices(topic, level):
+    """Mavzu va darajaga qarab tayyor javob variantlari"""
+    import random
+    pool = {
+        "greet":   [["Привет! Как дела?","Меня зовут...","Я из Узбекистана.","Рад познакомиться!"],
+                    ["Всё хорошо!","Я учусь.","Не понимаю.","Повторите, пожалуйста."]],
+        "travel":  [["Где вокзал?","Как доехать?","Это далеко?","Я заблудился."],
+                    ["Прямо, потом налево.","Рядом.","На автобусе.","Пять минут пешком."]],
+        "food":    [["Я люблю плов.","Это вкусно!","Что это?","Дайте меню."],
+                    ["Мне нравится чай.","Я хочу есть.","Сколько стоит?","Счёт, пожалуйста."]],
+        "family":  [["У меня есть брат.","Моя мама врач.","Нас трое.","Папа работает."],
+                    ["Мы живём в Ташкенте.","Семья большая.","Я один ребёнок.","Бабушка добрая."]],
+        "weather": [["Сегодня жарко.","Идёт дождь.","Очень холодно.","Хорошая погода!"],
+                    ["Я люблю лето.","Зима холодная.","Осенью красиво.","Люблю снег."]],
+        "numbers": [["Один, два, три...","Мне 20 лет.","Десять рублей.","Сто человек."],
+                    ["Сколько стоит?","Два билета.","Третий этаж.","Пять плюс три."]],
+        "hobbies": [["Я читаю.","Я играю в футбол.","Мне нравится музыка.","Я рисую."],
+                    ["Смотрю фильмы.","Учу языки.","Занимаюсь спортом.","Слушаю музыку."]],
+        "school":  [["Я студент.","Экзамен завтра.","Учусь хорошо.","Любимый предмет..."],
+                    ["Урок начался.","Домашнее задание.","Не понял.","Можно вопрос?"]],
+    }
+    opts = pool.get(topic, pool["greet"])
+    return random.choice(opts)
+
+
+# ── AI Chat (matnli + tugmali umumiy) ─────────────
+@app.route("/api/chat", methods=["POST"])
+@require_auth
+def api_chat():
+    internet = db.get_setting("internet_allowed", "on") == "on"
+    d        = request.get_json()
+    user_msg = d.get("message", "").strip()
+    mode     = d.get("mode", "text")
+    level    = db.get_setting("ai_conversation_level", "beginner")
+
+    if not user_msg:
+        return jsonify({"error": "Xabar bo'sh"}), 400
+
+    if not internet or not GEMINI_API_KEY:
+        resp    = offline_ai_response(user_msg, level)
+        choices = _offline_choices(d.get("topic","greet"), level) if mode=="choice" else []
+        db.save_chat("user", user_msg)
+        db.save_chat("assistant", resp)
+        db.add_xp(3)
+        return jsonify({"response": resp, "choices": choices, "ok": True, "offline": True})
+
+    history  = db.get_chat_history(10)
+    messages = _build_messages(history, user_msg)
+    system   = _chat_system(level, mode)
+    response = call_ai(messages, system_prompt=system, max_tokens=600)
+
     if not response:
-        return jsonify({"error": "AI bilan bog'lanib bo'lmadi"}), 500
+        resp    = offline_ai_response(user_msg, level)
+        choices = _offline_choices(d.get("topic","greet"), level) if mode=="choice" else []
+        db.save_chat("user", user_msg)
+        db.save_chat("assistant", resp)
+        return jsonify({"response": resp, "choices": choices, "ok": True, "offline": True})
 
     db.save_chat("user", user_msg)
     db.save_chat("assistant", response)
     db.add_xp(5)
-    return jsonify({"response": response, "ok": True})
 
-@app.route("/api/chat/correct", methods=["POST"])
+    choices = []
+    if mode == "choice":
+        import re as _re
+        m = _re.search(r'CHOICES:\s*(.*?)(?:\n|$)', response)
+        if m:
+            raw     = m.group(1)
+            choices = [c.strip().strip("[]") for c in raw.split("|") if c.strip()]
+            response = response[:m.start()].strip()
+        if not choices:
+            choices = _offline_choices(d.get("topic","greet"), level)
+
+    return jsonify({"response": response, "choices": choices, "ok": True})
+
+
+# ── Chat variantlar (tugmali rejim — AI boshlaydi) ──
+@app.route("/api/chat/choices", methods=["POST"])
 @require_auth
-def api_chat_correct():
-    """Foydalanuvchi AI javobini tahrirlash"""
+def api_chat_choices():
+    internet = db.get_setting("internet_allowed", "on") == "on"
+    d        = request.get_json()
+    topic    = d.get("topic", "greet")
+    level    = db.get_setting("ai_conversation_level", "beginner")
+
+    starters = {
+        "greet":   "Привет! Давай поговорим по-русски! Как тебя зовут?",
+        "travel":  "Расскажи мне: ты любишь путешествовать?",
+        "food":    "Какая твоя любимая еда?",
+        "family":  "Расскажи о своей семье.",
+        "weather": "Какая сегодня погода в твоём городе?",
+        "numbers": "Давай посчитаем! Сколько тебе лет?",
+        "hobbies": "Чем ты занимаешься в свободное время?",
+        "school":  "Ты учишься или работаешь?",
+    }
+    starter = starters.get(topic, starters["greet"])
+
+    if not internet or not GEMINI_API_KEY:
+        choices = _offline_choices(topic, level)
+        db.save_chat("assistant", starter)
+        return jsonify({"response": starter, "choices": choices, "ok": True, "offline": True})
+
+    system   = _chat_system(level, "choice")
+    response = call_ai([{"role":"user","content":starter}], system_prompt=system, max_tokens=400)
+
+    if not response:
+        choices = _offline_choices(topic, level)
+        return jsonify({"response": starter, "choices": choices, "ok": True, "offline": True})
+
+    choices = []
+    import re as _re
+    m = _re.search(r'CHOICES:\s*(.*?)(?:\n|$)', response)
+    if m:
+        raw     = m.group(1)
+        choices = [c.strip().strip("[]") for c in raw.split("|") if c.strip()]
+        response = response[:m.start()].strip()
+    if not choices:
+        choices = _offline_choices(topic, level)
+
+    db.save_chat("assistant", response)
+    db.add_xp(3)
+    return jsonify({"response": response, "choices": choices, "ok": True})
+
+
+# ── AI sozlamalarini saqlash ───────────────────────
+@app.route("/api/chat/settings", methods=["GET","POST"])
+@require_auth
+def api_chat_settings():
+    if request.method == "GET":
+        keys = ["ai_conversation_level","ai_chat_mode","ai_topic","ai_personality"]
+        return jsonify({k: db.get_setting(k,"") for k in keys})
     d = request.get_json()
-    chat_id = d.get("id")
-    correction = d.get("correction", "").strip()
-    if chat_id:
-        db._exec("UPDATE chat_history SET is_corrected=1, correction=? WHERE id=?",
-                 (correction, chat_id))
-    return jsonify({"ok": True})
-
-@app.route("/api/chat/history")
-@require_auth
-def api_chat_history():
-    return jsonify(db.get_chat_history(50))
-
-@app.route("/api/chat/clear", methods=["POST"])
-@require_auth
-def api_chat_clear():
-    db.clear_chat()
+    for k,v in d.items():
+        if k in {"ai_conversation_level","ai_chat_mode","ai_topic","ai_personality"}:
+            db.set_setting(k, str(v))
     return jsonify({"ok": True})
 
 # ── AI — So'z tarjima va misol ────────────────────
