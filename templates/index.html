@@ -454,11 +454,17 @@
 
 <!-- ── CHAT PAGE ── -->
 <section class="page" id="page-chat">
+
   <!-- ── HEADER ── -->
   <div class="page-header">
     <h1>🤖 AI Suhbat</h1>
     <div class="header-actions">
       <span id="chatOfflineBadge" class="offline-badge" style="display:none">📵 Offline</span>
+      <!-- TTS global toggle -->
+      <button id="ttsGlobalBtn" class="btn btn-ghost btn-sm tts-global-btn"
+              onclick="ttsToggleGlobal()" title="Ovozli o'qishni yoq/o'chir">
+        🔊 Ovoz: <span id="ttsGlobalLabel">ON</span>
+      </button>
       <button class="btn btn-ghost btn-sm" onclick="toggleChatSettings()">⚙️ Sozlamalar</button>
       <button class="btn btn-ghost btn-sm" onclick="clearChat()">🗑</button>
     </div>
@@ -466,61 +472,137 @@
 
   <!-- ── SOZLAMALAR PANEL ── -->
   <div id="chatSettingsPanel" class="chat-settings-panel" style="display:none">
+    <!-- Daraja -->
     <div class="csp-row">
       <div class="csp-group">
         <label class="csp-label">📊 Daraja</label>
         <div class="csp-btns" id="cspLevel">
-          <button class="csp-btn active" data-val="beginner"  onclick="setChatSetting('level','beginner',this)">🟢 Boshlang'ich</button>
-          <button class="csp-btn"        data-val="intermediate" onclick="setChatSetting('level','intermediate',this)">🟡 O'rta</button>
-          <button class="csp-btn"        data-val="advanced"  onclick="setChatSetting('level','advanced',this)">🔴 Yuqori</button>
+          <button class="csp-btn active" data-val="beginner"
+                  onclick="setChatSetting('level','beginner',this)">🟢 Boshlang'ich</button>
+          <button class="csp-btn" data-val="intermediate"
+                  onclick="setChatSetting('level','intermediate',this)">🟡 O'rta</button>
+          <button class="csp-btn" data-val="advanced"
+                  onclick="setChatSetting('level','advanced',this)">🔴 Yuqori</button>
         </div>
       </div>
       <div class="csp-group">
         <label class="csp-label">🎭 Shaxsiyat</label>
         <div class="csp-btns" id="cspPersonality">
-          <button class="csp-btn active" data-val="teacher"  onclick="setChatSetting('personality','teacher',this)">👨‍🏫 O'qituvchi</button>
-          <button class="csp-btn"        data-val="friend"   onclick="setChatSetting('personality','friend',this)">😊 Do'st</button>
-          <button class="csp-btn"        data-val="strict"   onclick="setChatSetting('personality','strict',this)">📐 Qattiq</button>
+          <button class="csp-btn active" data-val="teacher"
+                  onclick="setChatSetting('personality','teacher',this)">👨‍🏫 O'qituvchi</button>
+          <button class="csp-btn" data-val="friend"
+                  onclick="setChatSetting('personality','friend',this)">😊 Do'st</button>
+          <button class="csp-btn" data-val="strict"
+                  onclick="setChatSetting('personality','strict',this)">📐 Qattiq</button>
         </div>
       </div>
     </div>
+
+    <!-- Rejim -->
     <div class="csp-row">
       <div class="csp-group">
         <label class="csp-label">💬 Rejim</label>
         <div class="csp-btns" id="cspMode">
-          <button class="csp-btn active" data-val="text"   onclick="switchChatMode('text',this)">⌨️ Matnli</button>
-          <button class="csp-btn"        data-val="choice" onclick="switchChatMode('choice',this)">🔘 Tugmali</button>
+          <button class="csp-btn active" data-val="text"
+                  onclick="switchChatMode('text',this)">⌨️ Matnli</button>
+          <button class="csp-btn" data-val="choice"
+                  onclick="switchChatMode('choice',this)">🔘 Tugmali</button>
         </div>
       </div>
+      <!-- TTS sozlamalari -->
       <div class="csp-group">
-        <label class="csp-label">📂 Mavzu</label>
-        <div class="csp-btns" id="cspTopic">
-          <button class="csp-btn active" data-val="greet"   onclick="setChatSetting('topic','greet',this)">👋 Salomlashish</button>
-          <button class="csp-btn"        data-val="travel"  onclick="setChatSetting('topic','travel',this)">✈️ Sayohat</button>
-          <button class="csp-btn"        data-val="food"    onclick="setChatSetting('topic','food',this)">🍎 Ovqat</button>
-          <button class="csp-btn"        data-val="family"  onclick="setChatSetting('topic','family',this)">👨‍👩‍👧 Oila</button>
-          <button class="csp-btn"        data-val="weather" onclick="setChatSetting('topic','weather',this)">🌤️ Ob-havo</button>
-          <button class="csp-btn"        data-val="numbers" onclick="setChatSetting('topic','numbers',this)">🔢 Raqamlar</button>
-          <button class="csp-btn"        data-val="hobbies" onclick="setChatSetting('topic','hobbies',this)">🎯 Qiziqishlar</button>
-          <button class="csp-btn"        data-val="school"  onclick="setChatSetting('topic','school',this)">🏫 Maktab</button>
+        <label class="csp-label">🔊 Ovoz (TTS)</label>
+        <div class="csp-btns" id="cspTts">
+          <button class="csp-btn active" data-val="on"
+                  onclick="setChatSetting('tts','on',this)">🔊 Yoqiq</button>
+          <button class="csp-btn" data-val="off"
+                  onclick="setChatSetting('tts','off',this)">🔇 O'chiq</button>
+        </div>
+        <div style="margin-top:6px;display:flex;align-items:center;gap:8px">
+          <label style="font-size:11px;color:var(--text3)">Tezlik:</label>
+          <input type="range" id="ttsSpeedRange" min="0.5" max="1.5" step="0.1" value="0.9"
+                 oninput="ttsSpeedChange(this.value)"
+                 style="flex:1;accent-color:var(--accent)">
+          <span id="ttsSpeedLabel" style="font-size:11px;color:var(--text2);min-width:28px">0.9x</span>
         </div>
       </div>
     </div>
+
+    <!-- Mavzu -->
+    <div class="csp-row">
+      <div class="csp-group" style="flex:2">
+        <label class="csp-label">📂 Mavzu tanlash</label>
+        <div class="csp-btns" id="cspTopic">
+          <button class="csp-btn active" data-val="free"
+                  onclick="setChatTopic('free',this)">✨ Erkin</button>
+          <button class="csp-btn" data-val="greet"
+                  onclick="setChatTopic('greet',this)">👋 Salomlashish</button>
+          <button class="csp-btn" data-val="travel"
+                  onclick="setChatTopic('travel',this)">✈️ Sayohat</button>
+          <button class="csp-btn" data-val="food"
+                  onclick="setChatTopic('food',this)">🍎 Ovqat</button>
+          <button class="csp-btn" data-val="family"
+                  onclick="setChatTopic('family',this)">👨‍👩‍👧 Oila</button>
+          <button class="csp-btn" data-val="weather"
+                  onclick="setChatTopic('weather',this)">🌤️ Ob-havo</button>
+          <button class="csp-btn" data-val="numbers"
+                  onclick="setChatTopic('numbers',this)">🔢 Raqamlar</button>
+          <button class="csp-btn" data-val="hobbies"
+                  onclick="setChatTopic('hobbies',this)">🎯 Qiziqishlar</button>
+          <button class="csp-btn" data-val="school"
+                  onclick="setChatTopic('school',this)">🏫 Maktab</button>
+          <button class="csp-btn" data-val="work"
+                  onclick="setChatTopic('work',this)">💼 Ish</button>
+          <button class="csp-btn" data-val="health"
+                  onclick="setChatTopic('health',this)">🏥 Sog'liq</button>
+          <button class="csp-btn" data-val="sport"
+                  onclick="setChatTopic('sport',this)">⚽ Sport</button>
+          <button class="csp-btn" data-val="city"
+                  onclick="setChatTopic('city',this)">🏙️ Shahar</button>
+          <button class="csp-btn" data-val="shopping"
+                  onclick="setChatTopic('shopping',this)">🛍️ Xarid</button>
+          <button class="csp-btn" data-val="cinema"
+                  onclick="setChatTopic('cinema',this)">🎬 Kino</button>
+          <button class="csp-btn" data-val="tech"
+                  onclick="setChatTopic('tech',this)">💻 Texno</button>
+        </div>
+        <!-- Erkin mavzu input -->
+        <div id="customTopicWrap" style="margin-top:8px;display:flex;gap:6px">
+          <input type="text" id="customTopicInput" class="form-input"
+                 placeholder="O'z mavzuingizni yozing... (masalan: Musiqa, Tabiat, Tarix)"
+                 style="flex:1;font-size:13px;padding:7px 12px"
+                 onkeydown="if(event.key==='Enter')applyCustomTopic()">
+          <button class="btn btn-primary btn-sm" onclick="applyCustomTopic()">✅ Qo'llash</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Amallar -->
     <div class="csp-row csp-actions">
-      <button class="btn btn-primary btn-sm" onclick="startFreshChat()">🔄 Yangi suhbat boshlash</button>
+      <button class="btn btn-primary btn-sm" onclick="startFreshChat()">🔄 Yangi suhbat</button>
       <button class="btn btn-ghost btn-sm"   onclick="exportChat()">📥 Eksport</button>
       <button class="btn btn-ghost btn-sm"   onclick="toggleChatSettings()">✕ Yopish</button>
     </div>
   </div>
 
+  <!-- ── FAOL MAVZU QATORI ── -->
+  <div class="chat-topic-bar" id="chatTopicBar">
+    <span class="ctb-icon" id="ctbIcon">✨</span>
+    <span class="ctb-label" id="ctbLabel">Erkin suhbat</span>
+    <span class="ctb-level" id="ctbLevel">🟢 Boshlang'ich</span>
+    <div style="margin-left:auto;display:flex;gap:6px;align-items:center">
+      <span class="ctb-tts" id="ctbTts">🔊</span>
+      <button class="btn btn-ghost btn-sm" style="padding:3px 8px;font-size:11px"
+              onclick="toggleChatSettings()">Mavzu o'zgartirish</button>
+    </div>
+  </div>
+
   <!-- ── REJIM TUGMALARI ── -->
   <div class="chat-mode-bar">
-    <button id="modeBtnText"   class="mode-tab active" onclick="switchChatMode('text',this)">
-      <span>⌨️</span> Matnli suhbat
-    </button>
-    <button id="modeBtnChoice" class="mode-tab"        onclick="switchChatMode('choice',this)">
-      <span>🔘</span> Tugmali suhbat
-    </button>
+    <button id="modeBtnText"   class="mode-tab active"
+            onclick="switchChatMode('text')">⌨️ Matnli</button>
+    <button id="modeBtnChoice" class="mode-tab"
+            onclick="switchChatMode('choice')">🔘 Tugmali</button>
     <div class="chat-mode-hint" id="chatModeHint">Sen yozasan — AI javob beradi</div>
   </div>
 
@@ -530,9 +612,13 @@
       <div class="msg-avatar">🤖</div>
       <div class="msg-body">
         <div class="msg-bubble">
-          Привет! Я ваш помощник по русскому языку! 🇷🇺<br>
-          <span class="msg-uz">Salom! Men sizning rus tili yordamchingizman!</span><br>
-          <span class="msg-hint">Pastdan rejimni tanlang va suhbatni boshlang 👇</span>
+          Привет! Я ваш помощник — Алекс! 🇷🇺<br>
+          <span class="msg-uz">Salom! Men sizning rus tili yordamchingizman — Alex!</span><br>
+          <span class="msg-hint">⚙️ Sozlamalar orqali mavzu va rejim tanlang, keyin boshlang!</span>
+        </div>
+        <div class="msg-actions">
+          <button class="tts-msg-btn" onclick="ttsSpeakEl(this)"
+                  data-text="Привет! Я ваш помощник — Алекс!" title="Eshitish">🔊</button>
         </div>
       </div>
     </div>
@@ -540,30 +626,36 @@
 
   <!-- ── TUGMALI REJIM VARIANTLAR ── -->
   <div id="choiceArea" class="choice-area" style="display:none">
-    <div class="choice-hint">👆 Javobingizni tanlang:</div>
+    <div class="choice-hint">👆 Javobingizni tanlang: <kbd>1</kbd>–<kbd>4</kbd></div>
     <div class="choice-btns" id="choiceBtns"></div>
-    <button class="btn btn-ghost btn-sm choice-skip" onclick="skipChoice()">⏭ O'tkazib yuborish</button>
+    <button class="btn btn-ghost btn-sm choice-skip" onclick="skipChoice()">⏭ O'tkazish</button>
   </div>
 
   <!-- ── MATNLI REJIM INPUT ── -->
   <div id="textInputArea" class="chat-input-area">
     <div class="chat-input-wrap">
       <button class="chat-tool-btn" onclick="insertPhrase()" title="Tayyor ibora">💬</button>
+      <button class="chat-tool-btn" id="micBtn" onclick="toggleMic()"
+              title="Ovozdan matn (Speech-to-Text)">🎤</button>
       <input  type="text" id="chatInput" class="chat-input"
               placeholder="Ruscha yozing... (Enter = yuborish)"
               onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChat();}">
       <button class="chat-tool-btn" onclick="clearChatInput()" title="Tozalash">✕</button>
       <button class="chat-send-btn" onclick="sendChat()">➤</button>
     </div>
-    <div class="chat-quick-phrases" id="quickPhrases">
-      <span class="qp-label">Tez iboralar:</span>
+    <!-- Tez iboralar -->
+    <div class="chat-quick-phrases">
+      <span class="qp-label">Tez:</span>
       <button class="qp-btn" onclick="insertText('Я не понимаю.')">Tushunmadim</button>
       <button class="qp-btn" onclick="insertText('Повторите, пожалуйста.')">Qayta ayting</button>
       <button class="qp-btn" onclick="insertText('Как это по-русски?')">Ruscha qanday?</button>
-      <button class="qp-btn" onclick="insertText('Что значит ...')">Nima degani?</button>
+      <button class="qp-btn" onclick="insertText('Что значит ')">Nima degani?</button>
       <button class="qp-btn" onclick="insertText('Меня зовут ')">Ismim...</button>
+      <button class="qp-btn" onclick="insertText('Я хочу ')">Xohlayman...</button>
+      <button class="qp-btn" onclick="insertText('Расскажи мне о ')">Aytib ber...</button>
     </div>
   </div>
+
 </section>
 
 <!-- ── SCHEDULE PAGE ── -->

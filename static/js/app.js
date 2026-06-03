@@ -1059,147 +1059,427 @@ async function finishGame(){
 // AI CHAT
 // ══════════════════════════════════════════════════
 // ══════════════════════════════════════════════════
-// AI CHAT — TO'LIQ QAYTA YOZILGAN (v2)
-// Ikki rejim: MATNLI (text) + TUGMALI (choice)
-// Offline AI + Online Gemini fallback
+// AI CHAT v3 — ERKIN MAVZU + TTS OVOZ
 // ══════════════════════════════════════════════════
 
 // ── Chat holat ────────────────────────────────────
 const Chat = {
-  mode:        "text",      // "text" | "choice"
-  level:       "beginner",
-  topic:       "greet",
-  personality: "teacher",
-  isTyping:    false,
-  msgCount:    0,
+  mode:         "text",
+  level:        "beginner",
+  topic:        "free",
+  customTopic:  "",
+  personality:  "teacher",
+  isTyping:     false,
+  msgCount:     0,
+  ttsEnabled:   true,
+  ttsSpeed:     0.9,
+  ttsVoice:     null,   // rus ovozi
+  micActive:    false,
+  recognition:  null,
 };
 
-// ── Sahifani yuklash ──────────────────────────────
-async function loadChatHistory(){
-  // Sozlamalarni yuklash
-  const s = await api("/api/chat/settings");
-  if(s && !s.error){
-    if(s.ai_conversation_level) Chat.level       = s.ai_conversation_level;
-    if(s.ai_chat_mode)          Chat.mode        = s.ai_chat_mode;
-    if(s.ai_topic)              Chat.topic       = s.ai_topic;
-    if(s.ai_personality)        Chat.personality = s.ai_personality;
-  }
-  _applyChatSettings();
+// ── TOPIC META ────────────────────────────────────
+const TOPIC_META = {
+  free:     { icon:"✨", label:"Erkin suhbat" },
+  greet:    { icon:"👋", label:"Salomlashish" },
+  travel:   { icon:"✈️", label:"Sayohat" },
+  food:     { icon:"🍎", label:"Ovqat" },
+  family:   { icon:"👨‍👩‍👧", label:"Oila" },
+  weather:  { icon:"🌤️", label:"Ob-havo" },
+  numbers:  { icon:"🔢", label:"Raqamlar" },
+  hobbies:  { icon:"🎯", label:"Qiziqishlar" },
+  school:   { icon:"🏫", label:"Maktab" },
+  work:     { icon:"💼", label:"Ish" },
+  health:   { icon:"🏥", label:"Sog'liq" },
+  sport:    { icon:"⚽", label:"Sport" },
+  city:     { icon:"🏙️", label:"Shahar" },
+  shopping: { icon:"🛍️", label:"Xarid" },
+  cinema:   { icon:"🎬", label:"Kino" },
+  tech:     { icon:"💻", label:"Texnologiya" },
+};
 
-  // Tarix
-  const history = await api("/api/chat/history");
-  if(history && history.length){
-    const msgs = $("chatMessages");
-    msgs.querySelectorAll(".chat-msg:not(:first-child)").forEach(m=>m.remove());
-    [...history].reverse().forEach(h=>{
-      if(h.id) appendChatMsg(h.role, h.content, h.id, h.correction);
+// ══════════════════════════════════════════════════
+// TTS — WEB SPEECH API
+// ══════════════════════════════════════════════════
+function ttsInit() {
+  if (!window.speechSynthesis) return;
+  // Rus ovozini topish
+  const setVoice = () => {
+    const voices = speechSynthesis.getVoices();
+    // Rus tilida ovoz izlash
+    const ruVoice = voices.find(v =>
+      v.lang.startsWith("ru") ||
+      v.name.toLowerCase().includes("russian") ||
+      v.name.toLowerCase().includes("irina") ||
+      v.name.toLowerCase().includes("milena")
+    );
+    Chat.ttsVoice = ruVoice || voices.find(v => v.lang.startsWith("en")) || voices[0] || null;
+  };
+  if (speechSynthesis.getVoices().length) setVoice();
+  speechSynthesis.addEventListener("voiceschanged", setVoice);
+}
+
+function ttsSpeak(text, autoPlay = false) {
+  if (!window.speechSynthesis) return;
+  if (!autoPlay && !Chat.ttsEnabled) return;
+  // Eski gap to'xtatish
+  speechSynthesis.cancel();
+  // Faqat rus/lotin matnini olish (emoji, izoh ichkari [..] ni olib tashlash)
+  const clean = text
+    .replace(/\(.*?\)/g, "")     // (izoh) ni olib tashlash
+    .replace(/\[.*?\]/g, "")
+    .replace(/[🎉✅❌📝💡👋🤖🇷🇺⭐🔊📵]/gu, "")
+    .replace(/\n+/g, ". ")
+    .replace(/[*_~`]/g, "")
+    .trim();
+  if (!clean) return;
+
+  const utt = new SpeechSynthesisUtterance(clean);
+  utt.lang  = "ru-RU";
+  utt.rate  = Chat.ttsSpeed;
+  utt.pitch = 1.0;
+  if (Chat.ttsVoice) utt.voice = Chat.ttsVoice;
+
+  // Tugma animatsiyasi
+  utt.onstart = () => {
+    document.querySelectorAll(".tts-msg-btn.playing").forEach(b => {
+      b.classList.remove("playing"); b.textContent = "🔊";
     });
-    msgs.scrollTop = msgs.scrollHeight;
+  };
+  utt.onend = utt.onerror = () => {
+    document.querySelectorAll(".tts-msg-btn.playing").forEach(b => {
+      b.classList.remove("playing"); b.textContent = "🔊";
+    });
+  };
+  speechSynthesis.speak(utt);
+}
+
+// Xabar tugmasidan chaqiriladi
+function ttsSpeakEl(btn) {
+  const text = btn.dataset.text || "";
+  if (!text) return;
+  if (btn.classList.contains("playing")) {
+    speechSynthesis.cancel();
+    btn.classList.remove("playing"); btn.textContent = "🔊";
+    return;
   }
-
-  // Internet holati
-  _updateOfflineBadge();
+  document.querySelectorAll(".tts-msg-btn.playing").forEach(b => {
+    b.classList.remove("playing"); b.textContent = "🔊";
+  });
+  btn.classList.add("playing"); btn.textContent = "⏹";
+  const utt = new SpeechSynthesisUtterance(text);
+  utt.lang  = "ru-RU";
+  utt.rate  = Chat.ttsSpeed;
+  if (Chat.ttsVoice) utt.voice = Chat.ttsVoice;
+  utt.onend = utt.onerror = () => {
+    btn.classList.remove("playing"); btn.textContent = "🔊";
+  };
+  speechSynthesis.speak(utt);
 }
 
-function _applyChatSettings(){
-  // Daraja tugmalari
-  _activateGroup("cspLevel",     Chat.level);
-  _activateGroup("cspPersonality", Chat.personality);
-  _activateGroup("cspMode",      Chat.mode);
-  _activateGroup("cspTopic",     Chat.topic);
-  // Rejim tab
-  _setModeTab(Chat.mode);
+function ttsToggleGlobal() {
+  Chat.ttsEnabled = !Chat.ttsEnabled;
+  const lbl = $("ttsGlobalLabel");
+  const btn = $("ttsGlobalBtn");
+  if (lbl) lbl.textContent = Chat.ttsEnabled ? "ON" : "OFF";
+  if (btn) btn.classList.toggle("tts-off", !Chat.ttsEnabled);
+  const ctb = $("ctbTts");
+  if (ctb) ctb.textContent = Chat.ttsEnabled ? "🔊" : "🔇";
+  _activateGroup("cspTts", Chat.ttsEnabled ? "on" : "off");
+  api("/api/chat/settings", {
+    method:"POST",
+    body: JSON.stringify({ ai_tts_enabled: Chat.ttsEnabled ? "on" : "off" })
+  });
+  toast(Chat.ttsEnabled ? "🔊 Ovoz yoqildi" : "🔇 Ovoz o'chirildi", "info", 1500);
+  if (!Chat.ttsEnabled) speechSynthesis.cancel();
 }
 
-function _activateGroup(groupId, val){
-  const el=$(groupId);
-  if(!el) return;
-  el.querySelectorAll(".csp-btn").forEach(b=>{
-    b.classList.toggle("active", b.dataset.val===val);
+function ttsSpeedChange(val) {
+  Chat.ttsSpeed = parseFloat(val);
+  const lbl = $("ttsSpeedLabel");
+  if (lbl) lbl.textContent = val + "x";
+  api("/api/chat/settings", {
+    method:"POST",
+    body: JSON.stringify({ ai_tts_speed: val })
   });
 }
 
-function _setModeTab(mode){
-  $("modeBtnText")  ?.classList.toggle("active", mode==="text");
-  $("modeBtnChoice")?.classList.toggle("active", mode==="choice");
-  $("textInputArea")?.style.setProperty("display", mode==="text"?"flex":"none");
-  $("choiceArea")   ?.style.setProperty("display", mode==="choice"?"flex":"none");
-  const hint = $("chatModeHint");
-  if(hint) hint.textContent = mode==="text"
-    ? "⌨️ Sen yozasan — AI javob beradi"
-    : "🔘 AI yozadi — Sen tugmani bosasan";
+// ══════════════════════════════════════════════════
+// STT — SPEECH TO TEXT (Mic input)
+// ══════════════════════════════════════════════════
+function toggleMic() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    toast("❌ Brauzeringiz mikrofon ovoz tanishni qo'llab-quvvatlamaydi", "warn", 3000);
+    return;
+  }
+  const micBtn = $("micBtn");
+  if (Chat.micActive) {
+    Chat.recognition?.stop();
+    Chat.micActive = false;
+    if (micBtn) { micBtn.textContent = "🎤"; micBtn.classList.remove("mic-active"); }
+    return;
+  }
+  const rec = new SpeechRecognition();
+  rec.lang = "ru-RU";
+  rec.continuous = false;
+  rec.interimResults = true;
+  Chat.recognition = rec;
+  Chat.micActive = true;
+  if (micBtn) { micBtn.textContent = "🔴"; micBtn.classList.add("mic-active"); }
+  toast("🎤 Gapiring... (rus tilida)", "info", 3000);
+
+  rec.onresult = (e) => {
+    const transcript = Array.from(e.results)
+      .map(r => r[0].transcript).join("");
+    const inp = $("chatInput");
+    if (inp) inp.value = transcript;
+  };
+  rec.onend = () => {
+    Chat.micActive = false;
+    if (micBtn) { micBtn.textContent = "🎤"; micBtn.classList.remove("mic-active"); }
+  };
+  rec.onerror = (e) => {
+    toast("🎤 Xato: " + e.error, "warn", 2000);
+    Chat.micActive = false;
+    if (micBtn) { micBtn.textContent = "🎤"; micBtn.classList.remove("mic-active"); }
+  };
+  rec.start();
 }
 
-function _updateOfflineBadge(){
+// ══════════════════════════════════════════════════
+// SAHIFANI YUKLASH
+// ══════════════════════════════════════════════════
+async function loadChatHistory() {
+  // Sozlamalar
+  const s = await api("/api/chat/settings");
+  if (s && !s.error) {
+    if (s.ai_conversation_level) Chat.level       = s.ai_conversation_level;
+    if (s.ai_chat_mode)          Chat.mode        = s.ai_chat_mode;
+    if (s.ai_topic)              Chat.topic       = s.ai_topic;
+    if (s.ai_personality)        Chat.personality = s.ai_personality;
+    if (s.ai_custom_topic)       Chat.customTopic = s.ai_custom_topic;
+    if (s.ai_tts_speed)          { Chat.ttsSpeed  = parseFloat(s.ai_tts_speed)||0.9; }
+    Chat.ttsEnabled = s.ai_tts_enabled !== "off";
+  }
+  _applyChatSettings();
+  _updateTopicBar();
+  ttsInit();
+
+  // Tarix
+  const history = await api("/api/chat/history");
+  if (history && history.length) {
+    const msgs = $("chatMessages");
+    msgs.querySelectorAll(".chat-msg:not(:first-child)").forEach(m => m.remove());
+    [...history].reverse().forEach(h => {
+      if (h.id) appendChatMsg(h.role, h.content, h.id, h.correction);
+    });
+    msgs.scrollTop = msgs.scrollHeight;
+  }
+  _updateOfflineBadge();
+}
+
+function _applyChatSettings() {
+  _activateGroup("cspLevel",       Chat.level);
+  _activateGroup("cspPersonality", Chat.personality);
+  _activateGroup("cspMode",        Chat.mode);
+  _activateGroup("cspTopic",       Chat.topic);
+  _activateGroup("cspTts",         Chat.ttsEnabled ? "on" : "off");
+  _setModeTab(Chat.mode);
+
+  // Erkin mavzu inputi
+  const inp = $("customTopicInput");
+  if (inp && Chat.customTopic) inp.value = Chat.customTopic;
+  const wrap = $("customTopicWrap");
+  if (wrap) wrap.style.display = Chat.topic === "free" ? "flex" : "none";
+
+  // TTS speed
+  const rng = $("ttsSpeedRange");
+  if (rng) rng.value = Chat.ttsSpeed;
+  const lbl = $("ttsSpeedLabel");
+  if (lbl) lbl.textContent = Chat.ttsSpeed + "x";
+
+  // Global TTS btn
+  const glbl = $("ttsGlobalLabel");
+  if (glbl) glbl.textContent = Chat.ttsEnabled ? "ON" : "OFF";
+  const gbtn = $("ttsGlobalBtn");
+  if (gbtn) gbtn.classList.toggle("tts-off", !Chat.ttsEnabled);
+  const ctbTts = $("ctbTts");
+  if (ctbTts) ctbTts.textContent = Chat.ttsEnabled ? "🔊" : "🔇";
+}
+
+function _activateGroup(groupId, val) {
+  const el = $(groupId);
+  if (!el) return;
+  el.querySelectorAll(".csp-btn").forEach(b =>
+    b.classList.toggle("active", b.dataset.val === val)
+  );
+}
+
+function _setModeTab(mode) {
+  $("modeBtnText")  ?.classList.toggle("active", mode === "text");
+  $("modeBtnChoice")?.classList.toggle("active", mode === "choice");
+  const textArea   = $("textInputArea");
+  const choiceArea = $("choiceArea");
+  if (textArea)   textArea.style.display   = mode === "text" ? "flex" : "none";
+  if (choiceArea) choiceArea.style.display = mode === "choice" ? "flex" : "none";
+  const hint = $("chatModeHint");
+  if (hint) hint.textContent = mode === "text"
+    ? "⌨️ Sen yozasan — AI javob beradi"
+    : "🔘 AI yozadi — Sen tugma bosasan";
+}
+
+function _updateOfflineBadge() {
   const badge = $("chatOfflineBadge");
-  if(!badge) return;
+  if (!badge) return;
   badge.style.display = State.internetAllowed ? "none" : "inline-flex";
 }
 
-// ── Sozlamalar panel ──────────────────────────────
-function toggleChatSettings(){
+function _updateTopicBar() {
+  const meta  = TOPIC_META[Chat.topic] || TOPIC_META.free;
+  const icon  = $("ctbIcon");
+  const label = $("ctbLabel");
+  const level = $("ctbLevel");
+  const tts   = $("ctbTts");
+  if (icon)  icon.textContent  = meta.icon;
+  if (label) {
+    const lbl = Chat.topic === "free" && Chat.customTopic
+      ? `✨ ${Chat.customTopic}`
+      : meta.label;
+    label.textContent = lbl;
+  }
+  if (level) {
+    const lm = { beginner:"🟢 Boshlang'ich", intermediate:"🟡 O'rta", advanced:"🔴 Yuqori" };
+    level.textContent = lm[Chat.level] || Chat.level;
+  }
+  if (tts) tts.textContent = Chat.ttsEnabled ? "🔊" : "🔇";
+}
+
+// ══════════════════════════════════════════════════
+// SOZLAMALAR
+// ══════════════════════════════════════════════════
+function toggleChatSettings() {
   const panel = $("chatSettingsPanel");
-  if(!panel) return;
-  panel.style.display = panel.style.display==="none" ? "block" : "none";
+  if (!panel) return;
+  panel.style.display = panel.style.display === "none" ? "block" : "none";
 }
 
-async function setChatSetting(type, val, btn){
-  if(type==="level")       Chat.level       = val;
-  if(type==="topic")       Chat.topic       = val;
-  if(type==="personality") Chat.personality = val;
-  const groupMap = { level:"cspLevel", topic:"cspTopic", personality:"cspPersonality" };
-  if(groupMap[type]) _activateGroup(groupMap[type], val);
-  await api("/api/chat/settings",{method:"POST",body:JSON.stringify({
-    ai_conversation_level: Chat.level,
-    ai_topic:              Chat.topic,
-    ai_personality:        Chat.personality,
-  })});
+async function setChatSetting(type, val, btn) {
+  if (type === "level")       Chat.level       = val;
+  if (type === "personality") Chat.personality = val;
+  if (type === "tts") {
+    Chat.ttsEnabled = val === "on";
+    const glbl = $("ttsGlobalLabel");
+    if (glbl) glbl.textContent = Chat.ttsEnabled ? "ON" : "OFF";
+    const gbtn = $("ttsGlobalBtn");
+    if (gbtn) gbtn.classList.toggle("tts-off", !Chat.ttsEnabled);
+    if (!Chat.ttsEnabled) speechSynthesis.cancel?.();
+  }
+  const groupMap = { level:"cspLevel", personality:"cspPersonality", tts:"cspTts" };
+  if (groupMap[type]) _activateGroup(groupMap[type], val);
+  _updateTopicBar();
+  await api("/api/chat/settings", {
+    method: "POST",
+    body: JSON.stringify({
+      ai_conversation_level: Chat.level,
+      ai_personality:        Chat.personality,
+      ai_tts_enabled:        Chat.ttsEnabled ? "on" : "off",
+    })
+  });
 }
 
-async function switchChatMode(mode, btn){
+async function setChatTopic(topic, btn) {
+  Chat.topic = topic;
+  _activateGroup("cspTopic", topic);
+  const wrap = $("customTopicWrap");
+  if (wrap) wrap.style.display = topic === "free" ? "flex" : "none";
+  _updateTopicBar();
+  await api("/api/chat/settings", {
+    method: "POST",
+    body: JSON.stringify({ ai_topic: topic })
+  });
+}
+
+async function applyCustomTopic() {
+  const inp = $("customTopicInput");
+  const val = inp?.value.trim() || "";
+  Chat.customTopic = val;
+  Chat.topic = "free";
+  _activateGroup("cspTopic", "free");
+  _updateTopicBar();
+  await api("/api/chat/settings", {
+    method: "POST",
+    body: JSON.stringify({ ai_topic: "free", ai_custom_topic: val })
+  });
+  toast(`✅ Mavzu: "${val || 'Erkin'}"`, "success", 1500);
+}
+
+async function switchChatMode(mode) {
   Chat.mode = mode;
   _setModeTab(mode);
-  // cspMode grupini yangilash
   _activateGroup("cspMode", mode);
-  await api("/api/chat/settings",{method:"POST",body:JSON.stringify({ai_chat_mode:mode})});
-  if(mode==="choice"){
-    // Tugmali rejimni boshlash
-    await startChoiceMode();
-  }
+  await api("/api/chat/settings", {
+    method: "POST",
+    body: JSON.stringify({ ai_chat_mode: mode })
+  });
+  if (mode === "choice") await startChoiceMode();
 }
 
-// ── Xabar qo'shish (umumiy) ───────────────────────
-function appendChatMsg(role, content, id=null, correction="", isOffline=false){
-  const msgs = $("chatMessages");
-  const div  = document.createElement("div");
+// ══════════════════════════════════════════════════
+// XABAR QO'SHISH — appendChatMsg
+// ══════════════════════════════════════════════════
+function appendChatMsg(role, content, id = null, correction = "", isOffline = false) {
+  const msgs   = $("chatMessages");
+  const div    = document.createElement("div");
   div.className = `chat-msg ${role}`;
-  const avatar   = role==="assistant" ? "🤖" : "👤";
-  const offTag   = isOffline ? `<span class="msg-offline-tag">📵offline</span>` : "";
-  const corrHTML = correction
-    ? `<div class="msg-correction">✏️ Tuzatish: ${correction}</div>`
-    : "";
-  const editBtn  = (role==="assistant" && id)
-    ? `<button class="msg-edit-btn" onclick="editChatMsg(${id},this)">✏️</button>`
-    : "";
-  const formattedContent = content
-    .replace(/\n/g,"<br>")
-    .replace(/\*\*(.*?)\*\*/g,"<strong>$1</strong>")
-    .replace(/«(.*?)»/g,"<em class='msg-ru'>«$1»</em>");
+
+  // Ruscha matnni (1-qator yoki « » ichidagi) ajratish — TTS uchun
+  const firstLine = content.split("\n")[0].replace(/[🎉✅❌📝💡👋🤖🇷🇺⭐🔊📵✨]/gu,"").trim();
+  const ttsText   = firstLine || content.substring(0, 150);
+
+  const avatar    = role === "assistant" ? "🤖" : "👤";
+  const offTag    = isOffline ? `<span class="msg-offline-tag">📵offline</span>` : "";
+  const corrHTML  = correction
+    ? `<div class="msg-correction">✏️ Tuzatish: ${correction}</div>` : "";
+  const editBtn   = (role === "assistant" && id)
+    ? `<button class="msg-edit-btn" onclick="editChatMsg(${id},this)">✏️</button>` : "";
+
+  // Formatlash
+  const fmt = content
+    .replace(/\n/g, "<br>")
+    .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
+    .replace(/❌\s*(.*?)\s*→\s*✅\s*(.*?)(<br>|$)/g,
+      `<span class="err-wrong">❌ $1</span> → <span class="err-right">✅ $2</span>$3`)
+    .replace(/«(.*?)»/g, `<em class="msg-ru">«$1»</em>`);
 
   div.innerHTML = `
     <div class="msg-avatar">${avatar}</div>
     <div class="msg-body">
-      <div class="msg-bubble">${formattedContent}${offTag}</div>
+      <div class="msg-bubble">${fmt}${offTag}</div>
       ${corrHTML}
-      <div class="msg-actions">${editBtn}</div>
+      <div class="msg-actions">
+        ${role === "assistant"
+          ? `<button class="tts-msg-btn" onclick="ttsSpeakEl(this)"
+               data-text="${ttsText.replace(/"/g,'&quot;')}" title="Eshitish (🔊)">🔊</button>`
+          : `<button class="tts-msg-btn" onclick="ttsSpeakEl(this)"
+               data-text="${ttsText.replace(/"/g,'&quot;')}" title="Eshitish">🔊</button>`
+        }
+        ${editBtn}
+      </div>
     </div>`;
+
   msgs.appendChild(div);
   msgs.scrollTop = msgs.scrollHeight;
   Chat.msgCount++;
+
+  // Auto-TTS: faqat assistant xabarlari + ttsEnabled
+  if (role === "assistant" && Chat.ttsEnabled) {
+    ttsSpeak(ttsText, true);
+  }
 }
 
-function _showTyping(){
-  if(Chat.isTyping) return;
+function _showTyping() {
+  if (Chat.isTyping) return;
   Chat.isTyping = true;
   const div = document.createElement("div");
   div.className = "chat-msg assistant typing-msg";
@@ -1211,264 +1491,259 @@ function _showTyping(){
   $("chatMessages").appendChild(div);
   $("chatMessages").scrollTop = $("chatMessages").scrollHeight;
 }
-
-function _hideTyping(){
+function _hideTyping() {
   Chat.isTyping = false;
   $("typingIndicator")?.remove();
 }
 
 // ══════════════════════════════════════════════════
-// MATNLI REJIM
+// MATNLI REJIM — sendChat
 // ══════════════════════════════════════════════════
-async function sendChat(){
+async function sendChat() {
   const inp = $("chatInput");
-  const msg = inp.value.trim();
-  if(!msg || Chat.isTyping) return;
+  const msg = inp?.value.trim();
+  if (!msg || Chat.isTyping) return;
   inp.value = "";
   inp.focus();
 
   appendChatMsg("user", msg);
   _showTyping();
 
-  const r = await api("/api/chat",{
-    method:"POST",
-    body: JSON.stringify({ message:msg, mode:"text", topic:Chat.topic })
+  const r = await api("/api/chat", {
+    method: "POST",
+    body: JSON.stringify({
+      message:      msg,
+      mode:         "text",
+      topic:        Chat.topic,
+      custom_topic: Chat.customTopic,
+    })
   });
   _hideTyping();
 
-  if(r && r.ok){
-    appendChatMsg("assistant", r.response, null, "", r.offline||false);
-    if(r.offline) toast("📵 Offline AI javob berdi","info",2000);
+  if (r?.ok) {
+    appendChatMsg("assistant", r.response, null, "", r.offline || false);
+    if (r.offline) toast("📵 Offline AI", "info", 1500);
   } else {
-    appendChatMsg("assistant", `❌ ${r?.error||"Xatolik yuz berdi"}`);
-    toast("❌ "+(r?.error||"AI xatosi"),"error");
+    appendChatMsg("assistant", `❌ ${r?.error || "Xatolik yuz berdi"}`);
+    toast("❌ " + (r?.error || "AI xatosi"), "error");
   }
   await loadProfile();
 }
 
-function clearChatInput(){
+function clearChatInput() {
   const inp = $("chatInput");
-  if(inp){ inp.value=""; inp.focus(); }
+  if (inp) { inp.value = ""; inp.focus(); }
 }
 
-function insertText(txt){
+function insertText(txt) {
   const inp = $("chatInput");
-  if(!inp) return;
+  if (!inp) return;
   inp.value = (inp.value + txt).trimStart();
   inp.focus();
 }
 
-function insertPhrase(){
+function insertPhrase() {
   const phrases = [
-    "Меня зовут ","Я из ","Я живу в ","Мне нравится ","Я люблю ",
-    "Я не понимаю.","Повторите, пожалуйста.","Как это по-русски?",
-    "Что значит ","Я хочу ","У меня есть ","Я работаю в ",
+    "Меня зовут ", "Я из ", "Я живу в ",
+    "Мне нравится ", "Я люблю ", "Расскажи мне о ",
+    "Я не понимаю.", "Повторите, пожалуйста.",
+    "Как это по-русски?", "Что значит ",
+    "Я хочу ", "У меня есть ", "Я работаю в ",
+    "Сегодня я ", "Мой любимый ",
   ];
-  const phrase = phrases[Math.floor(Math.random()*phrases.length)];
-  insertText(phrase);
+  insertText(phrases[Math.floor(Math.random() * phrases.length)]);
 }
 
 // ══════════════════════════════════════════════════
 // TUGMALI REJIM
 // ══════════════════════════════════════════════════
-async function startChoiceMode(){
-  // Tugmali rejimni boshlash — AI savol beradi
+async function startChoiceMode() {
   _showTyping();
-  const r = await api("/api/chat/choices",{
-    method:"POST",
-    body: JSON.stringify({ topic: Chat.topic, level: Chat.level })
+  const r = await api("/api/chat/choices", {
+    method: "POST",
+    body: JSON.stringify({
+      topic:        Chat.topic,
+      custom_topic: Chat.customTopic,
+      level:        Chat.level,
+    })
   });
   _hideTyping();
-
-  if(!r || !r.ok){
-    appendChatMsg("assistant","❌ AI bilan bog'lanib bo'lmadi");
-    return;
-  }
-  appendChatMsg("assistant", r.response, null, "", r.offline||false);
-  if(r.offline) toast("📵 Offline rejim","info",1500);
+  if (!r?.ok) { appendChatMsg("assistant", "❌ AI bilan bog'lanib bo'lmadi"); return; }
+  appendChatMsg("assistant", r.response, null, "", r.offline || false);
   showChoices(r.choices || []);
+  if (r.offline) toast("📵 Offline rejim", "info", 1500);
 }
 
-function showChoices(choices){
-  const area    = $("choiceArea");
-  const btnsEl  = $("choiceBtns");
-  if(!area || !btnsEl) return;
+function showChoices(choices) {
+  const area   = $("choiceArea");
+  const btnsEl = $("choiceBtns");
+  if (!area || !btnsEl || !choices.length) { if (area) area.style.display="none"; return; }
 
-  if(!choices || !choices.length){
-    area.style.display = "none";
-    return;
-  }
-
-  btnsEl.innerHTML = choices.map((c,i) =>
-    `<button class="choice-option" onclick="pickChoice(this,'${c.replace(/'/g,"\\'")}')" data-idx="${i}">
+  btnsEl.innerHTML = choices.map((c, i) =>
+    `<button class="choice-option" onclick="pickChoice(this,'${c.replace(/'/g,"\\'")}',${i})"
+             data-idx="${i}">
        <span class="co-num">${i+1}</span>
        <span class="co-text">${c}</span>
+       <button class="tts-choice-btn" onclick="event.stopPropagation();ttsSpeak('${c.replace(/'/g,"\\'")}',true)"
+               title="Eshitish">🔊</button>
      </button>`
   ).join("");
-
   area.style.display = "flex";
 
-  // Keyboard shortcut: 1,2,3,4
-  area._keyHandler = (e)=>{
+  // Keyboard 1–4
+  if (area._kh) document.removeEventListener("keydown", area._kh);
+  area._kh = (e) => {
+    if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
     const n = parseInt(e.key);
-    if(n>=1 && n<=choices.length){
+    if (n >= 1 && n <= choices.length) {
       const btn = btnsEl.querySelectorAll(".choice-option")[n-1];
-      if(btn) pickChoice(btn, choices[n-1]);
+      if (btn) pickChoice(btn, choices[n-1], n-1);
     }
   };
-  document.addEventListener("keydown", area._keyHandler);
+  document.addEventListener("keydown", area._kh);
 }
 
-function _clearChoices(){
+function _clearChoices() {
   const area = $("choiceArea");
-  if(!area) return;
+  if (!area) return;
   area.style.display = "none";
-  if(area._keyHandler){
-    document.removeEventListener("keydown", area._keyHandler);
-    area._keyHandler = null;
-  }
+  if (area._kh) { document.removeEventListener("keydown", area._kh); area._kh = null; }
   $("choiceBtns").innerHTML = "";
 }
 
-async function pickChoice(btn, chosenText){
-  if(Chat.isTyping) return;
+async function pickChoice(btn, chosenText) {
+  if (Chat.isTyping) return;
   _clearChoices();
-
-  // Tanlangan tugmani highlight qilish
-  btn.classList.add("selected");
-  setTimeout(()=> btn.classList.remove("selected"), 400);
-
-  // Foydalanuvchi xabarini ko'rsatish
   appendChatMsg("user", chosenText);
   _showTyping();
 
-  // AI ga yuborish
-  const r = await api("/api/chat",{
-    method:"POST",
-    body: JSON.stringify({ message:chosenText, mode:"choice", topic:Chat.topic })
+  const r = await api("/api/chat", {
+    method: "POST",
+    body: JSON.stringify({
+      message:      chosenText,
+      mode:         "choice",
+      topic:        Chat.topic,
+      custom_topic: Chat.customTopic,
+    })
   });
   _hideTyping();
 
-  if(r && r.ok){
-    appendChatMsg("assistant", r.response, null, "", r.offline||false);
-    // Yangi variantlarni ko'rsatish
-    if(r.choices && r.choices.length){
-      showChoices(r.choices);
-    } else {
-      // AI yangi variantlar bermaganda offline variantlar
-      showChoices(_getOfflineChoices());
-    }
-    if(r.offline) toast("📵 Offline AI","info",1500);
+  if (r?.ok) {
+    appendChatMsg("assistant", r.response, null, "", r.offline || false);
+    showChoices(r.choices?.length ? r.choices : _getOfflineChoices());
+    if (r.offline) toast("📵 Offline AI", "info", 1500);
   } else {
-    appendChatMsg("assistant",`❌ ${r?.error||"Xatolik"}`);
+    appendChatMsg("assistant", `❌ ${r?.error || "Xatolik"}`);
     showChoices(_getOfflineChoices());
   }
   await loadProfile();
 }
 
-async function skipChoice(){
+async function skipChoice() {
   _clearChoices();
-  if(Chat.isTyping) return;
+  if (Chat.isTyping) return;
   _showTyping();
-  const r = await api("/api/chat/choices",{
-    method:"POST",
-    body: JSON.stringify({ topic:Chat.topic, level:Chat.level })
+  const r = await api("/api/chat/choices", {
+    method: "POST",
+    body: JSON.stringify({ topic: Chat.topic, custom_topic: Chat.customTopic, level: Chat.level })
   });
   _hideTyping();
-  if(r && r.ok){
-    appendChatMsg("assistant", r.response, null, "", r.offline||false);
-    showChoices(r.choices||_getOfflineChoices());
+  if (r?.ok) {
+    appendChatMsg("assistant", r.response, null, "", r.offline || false);
+    showChoices(r.choices || _getOfflineChoices());
   }
 }
 
-function _getOfflineChoices(){
+function _getOfflineChoices() {
   const pool = {
-    greet:   ["Привет! Как дела?","Я из Узбекистана.","Меня зовут ...","Рад познакомиться!"],
-    travel:  ["Где вокзал?","Как доехать?","Это далеко?","Пешком близко."],
-    food:    ["Я люблю плов.","Это вкусно!","Дайте меню.","Сколько стоит?"],
-    family:  ["У меня есть брат.","Моя мама врач.","Нас трое.","Семья большая."],
-    weather: ["Сегодня жарко.","Идёт дождь.","Холодно!","Хорошая погода."],
-    numbers: ["Мне 20 лет.","Десять рублей.","Три человека.","Пятьдесят процентов."],
-    hobbies: ["Я читаю.","Люблю музыку.","Занимаюсь спортом.","Смотрю фильмы."],
-    school:  ["Я студент.","Экзамен завтра.","Любимый предмет...","Учусь хорошо."],
+    free:     ["Расскажи мне больше.","Интересно! Продолжай.","Я не понимаю.","Повторите, пожалуйста."],
+    greet:    ["Привет! Как дела?","Я из Узбекистана.","Меня зовут ...","Рад познакомиться!"],
+    travel:   ["Где вокзал?","Как доехать?","Это далеко?","Пешком близко."],
+    food:     ["Я люблю плов.","Это вкусно!","Дайте меню.","Сколько стоит?"],
+    family:   ["У меня есть брат.","Моя мама врач.","Нас трое.","Семья большая."],
+    weather:  ["Сегодня жарко.","Идёт дождь.","Холодно!","Хорошая погода."],
+    numbers:  ["Мне 20 лет.","Десять рублей.","Три человека.","Сколько стоит?"],
+    hobbies:  ["Я читаю.","Люблю музыку.","Занимаюсь спортом.","Смотрю фильмы."],
+    school:   ["Я студент.","Экзамен завтра.","Любимый предмет...","Учусь хорошо."],
+    work:     ["Я работаю врачом.","Офис рядом.","Зарплата хорошая.","Работа трудная."],
+    health:   ["Я здоров.","Голова болит.","Нужен врач.","Всё хорошо."],
+    sport:    ["Я люблю футбол.","Играю каждый день.","Команда победила.","Тренировка трудная."],
+    city:     ["Город большой.","Метро быстрое.","Парк красивый.","Магазин рядом."],
+    shopping: ["Это дорого.","Где примерочная?","Мне нравится.","Куплю это."],
+    cinema:   ["Люблю боевики.","Фильм хороший.","Актёр знаменитый.","Хочу посмотреть."],
+    tech:     ["У меня iPhone.","Интернет быстрый.","Программирую.","Люблю гаджеты."],
   };
-  const opts = pool[Chat.topic] || pool.greet;
-  return opts;
+  return pool[Chat.topic] || pool.free;
 }
 
 // ══════════════════════════════════════════════════
-// UMUMIY CHAT AMALLAR
+// UMUMIY AMALLAR
 // ══════════════════════════════════════════════════
-async function clearChat(){
-  if(!confirm("Barcha suhbat tarixini tozalash?")) return;
-  await api("/api/chat/clear",{method:"POST"});
+async function clearChat() {
+  if (!confirm("Barcha suhbat tarixini tozalash?")) return;
+  speechSynthesis.cancel?.();
+  await api("/api/chat/clear", { method: "POST" });
   const msgs = $("chatMessages");
-  msgs.querySelectorAll(".chat-msg:not(:first-child)").forEach(m=>m.remove());
+  msgs.querySelectorAll(".chat-msg:not(:first-child)").forEach(m => m.remove());
   _clearChoices();
   Chat.msgCount = 0;
-  toast("🗑 Tozalandi","info");
+  toast("🗑 Tozalandi", "info");
 }
 
-async function startFreshChat(){
+async function startFreshChat() {
   await clearChat();
   toggleChatSettings();
-  if(Chat.mode==="choice"){
+  _updateTopicBar();
+  if (Chat.mode === "choice") {
     await startChoiceMode();
   } else {
+    const meta  = TOPIC_META[Chat.topic] || TOPIC_META.free;
+    const topic = Chat.topic === "free" && Chat.customTopic
+      ? `"${Chat.customTopic}"` : meta.label;
     appendChatMsg("assistant",
-      `Salom! Yangi suhbat boshlaymiz! 🇷🇺\nMavzu: ${_topicLabel(Chat.topic)}\nDaraja: ${_levelLabel(Chat.level)}\n\nRus tilida gaplashing!`,
+      `Yangi suhbat boshlaymiz! 🇷🇺\n📂 Mavzu: ${meta.icon} ${topic}\n📊 Daraja: ${Chat.level}\n\nRus tilida gapirishni boshlang!`,
       null, "", false);
   }
 }
 
-function _topicLabel(t){
-  const m={greet:"👋 Salomlashish",travel:"✈️ Sayohat",food:"🍎 Ovqat",family:"👨‍👩‍👧 Oila",weather:"🌤️ Ob-havo",numbers:"🔢 Raqamlar",hobbies:"🎯 Qiziqishlar",school:"🏫 Maktab"};
-  return m[t]||t;
-}
-function _levelLabel(l){
-  const m={beginner:"🟢 Boshlang'ich",intermediate:"🟡 O'rta",advanced:"🔴 Yuqori"};
-  return m[l]||l;
-}
-
-function editChatMsg(id, btn){
+function editChatMsg(id, btn) {
   const correction = prompt("Tuzatishni kiriting (AI xatosi yoki izoh):");
-  if(!correction) return;
-  api("/api/chat/correct",{method:"POST",body:JSON.stringify({id,correction})});
+  if (!correction) return;
+  api("/api/chat/correct", { method: "POST", body: JSON.stringify({ id, correction }) });
   const corrDiv = document.createElement("div");
   corrDiv.className = "msg-correction";
-  corrDiv.textContent = "✏️ "+correction;
+  corrDiv.textContent = "✏️ " + correction;
   btn.closest(".msg-body").insertBefore(corrDiv, btn.closest(".msg-actions"));
   btn.remove();
-  toast("✅ Saqlandi","success");
+  toast("✅ Saqlandi", "success");
 }
 
-function exportChat(){
+function exportChat() {
   const msgs = $("chatMessages").querySelectorAll(".chat-msg");
-  let text = "RusLearn — Suhbat tarixi\n"+"─".repeat(40)+"\n\n";
-  msgs.forEach(m=>{
-    const role   = m.classList.contains("user") ? "Men" : "AI";
+  let text = "RusLearn Pro — AI Suhbat tarixi\n" + "─".repeat(40) + "\n\n";
+  msgs.forEach(m => {
+    const role   = m.classList.contains("user") ? "Men" : "AI (Alex)";
     const bubble = m.querySelector(".msg-bubble");
-    if(bubble) text += `[${role}]: ${bubble.innerText}\n\n`;
+    if (bubble) text += `[${role}]: ${bubble.innerText.replace(/🔊|⏹/g,"").trim()}\n\n`;
   });
-  const blob = new Blob([text],{type:"text/plain;charset=utf-8"});
+  const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   a.download = `ruslearn_chat_${new Date().toISOString().slice(0,10)}.txt`;
   a.click();
-  toast("📥 Yuklab olindi","success");
+  toast("📥 Yuklab olindi", "success");
 }
 
-// saveChatLevel — eski funksiya muvofiqlik uchun saqlanadi
-async function saveChatLevel(){
+// Eski muvofiqlik
+async function saveChatLevel() {
   const sel = $("chatLevelSel");
-  if(sel) Chat.level = sel.value;
-  await api("/api/chat/settings",{method:"POST",body:JSON.stringify({ai_conversation_level:Chat.level})});
+  if (sel) Chat.level = sel.value;
+  await api("/api/chat/settings", {
+    method: "POST",
+    body: JSON.stringify({ ai_conversation_level: Chat.level })
+  });
 }
 
-
-// ══════════════════════════════════════════════════
-// SCHEDULE PAGE
-// ══════════════════════════════════════════════════
 async function loadSchedule(){
   const sched=await api("/api/schedule?days=14");
   const missed=await api("/api/schedule/missed");

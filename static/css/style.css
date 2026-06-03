@@ -1673,3 +1673,103 @@ textarea.form-input { resize: vertical; line-height: 1.5; }
   .choice-option  { padding: 10px 12px; font-size: 13px; }
   .chat-quick-phrases { display: none; }
 }
+
+
+/* ══════════════════════════════════════════════════
+   AI CHAT v3 — TTS + ERKIN MAVZU STILLARI
+══════════════════════════════════════════════════ */
+
+/* ── TTS global tugma ───────────────────────────── */
+.tts-global-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 12px;
+  border-radius: 99px;
+  border: 1.5px solid var(--green);
+  color: var(--green);
+  background: rgba(52,201,126,.08);
+  transition: all .2s;
+}
+.tts-global-btn:hover  { background: rgba(52,201,126,.18); }
+.tts-global-btn.tts-off {
+  border-color: var(--border);
+  color: var(--text3);
+  background: transparent;
+}
+
+/* ── Mavzu qatori ───────────────────────────────── */
+.chat-topic-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  margin-bottom: 10px;
+  font-size: 13px;
+}
+.ctb-icon  { font-size: 16px; }
+.ctb-label { font-weight: 600; color: var(--text1); }
+.ctb-level { font-size: 11px; color: var(--text3);
+             background: var(--bg3); padding: 2px 8px;
+             border-radius: 99px; border: 1px solid var(--border); }
+.ctb-tts   { font-size: 14px; opacity: .7; }
+
+/* ── TTS xabar tugmasi ──────────────────────────── */
+.tts-msg-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  padding: 2px 8px;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--text3);
+  transition: all .15s;
+  line-height: 1.5;
+}
+.tts-msg-btn:hover  { border-color: var(--accent); color: var(--accent); background: rgba(79,142,247,.07); }
+.tts-msg-btn.playing { border-color: var(--green); color: var(--green); background: rgba(52,201,126,.1); animation: tts-pulse 1s infinite; }
+@keyframes tts-pulse { 0%,100%{ opacity:1; } 50%{ opacity:.5; } }
+
+/* ── TTS choice tugma ───────────────────────────── */
+.tts-choice-btn {
+  background: none;
+  border: none;
+  font-size: 13px;
+  cursor: pointer;
+  opacity: .5;
+  padding: 0 4px;
+  border-radius: 4px;
+  transition: opacity .15s;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+.tts-choice-btn:hover { opacity: 1; }
+
+/* ── Mic tugma ──────────────────────────────────── */
+.chat-tool-btn.mic-active {
+  color: var(--red) !important;
+  background: rgba(240,80,96,.1) !important;
+  animation: mic-blink .8s infinite;
+}
+@keyframes mic-blink { 0%,100%{ opacity:1; } 50%{ opacity:.4; } }
+
+/* ── Xato tuzatish formati ──────────────────────── */
+.err-wrong { color: var(--red);   font-weight: 600; }
+.err-right { color: var(--green); font-weight: 700; }
+
+/* ── TTS tezlik range (overrides) ──────────────── */
+input[type=range] {
+  height: 4px;
+  cursor: pointer;
+}
+input[type=range]::-webkit-slider-thumb {
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+}

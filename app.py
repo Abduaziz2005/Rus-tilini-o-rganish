@@ -2308,29 +2308,44 @@ def api_leaderboard():
 
 
 # ── AI Chat helpers ────────────────────────────────
-def _chat_system(level, mode="text"):
+def _chat_system(level, mode="text", topic="free", custom_topic=""):
+    """Daraja, rejim va mavzuga qarab system prompt"""
     lvl_hints = {
-        "beginner":     "Juda oddiy va qisqa gaplar ishlatgin. Har bir rus so'z yoniga qavsda o'zbekcha tarjima qo'y.",
+        "beginner":     "Juda oddiy va qisqa gaplar ishlat. Har bir rus so'z yoniga qavsda o'zbekcha tarjima qo'y.",
         "intermediate": "O'rta murakkablikdagi gaplar ishlat. Yangi so'zlarni tushuntir.",
-        "advanced":     "To'liq rus tilida gaplash. Grammatika va uslubga e'tibor ber.",
+        "advanced":     "To'liq rus tilida gaplash. Boyitilgan lug'at va murakkab grammatikadan foydalangin.",
     }
     hint = lvl_hints.get(level, lvl_hints["beginner"])
+    topic_ctx = ""
+    if topic == "free" and custom_topic:
+        topic_ctx = f"Mavzu: foydalanuvchi tanlagan — '{custom_topic}'. Shu mavzu atrofida suhbatni olib bor.\n"
+    elif topic != "free":
+        topic_map = {
+            "greet":"Salomlashish","travel":"Sayohat","food":"Ovqat",
+            "family":"Oila","weather":"Ob-havo","numbers":"Raqamlar",
+            "hobbies":"Qiziqishlar","school":"Ta'lim","work":"Ish",
+            "health":"Sog'liq","sport":"Sport","city":"Shahar",
+            "shopping":"Xarid","cinema":"Kino","tech":"Texnologiya",
+        }
+        topic_ctx = f"Mavzu: {topic_map.get(topic, topic)}. Shu mavzu atrofida suhbat qil.\n"
+
     base = (
-        "Sen 'RusLearn' ilovasidagi rus tili o'qituvchisi va suhbat sherigiisan.\n"
-        f"Daraja: {level}.\n"
+        "Sen 'RusLearn Pro' ilovasidagi rus tili o'qituvchisi va suhbat sherigiisan. Ismim — Alex.\n"
+        f"Foydalanuvchi darajasi: {level}.\n"
         f"Til ko'rsatmasi: {hint}\n"
-        "Umumiy qoidalar:\n"
-        "- Foydalanuvchi xato qilsa, xatoni ko'rsat va to'g'risini yoz\n"
-        "- Har javobning oxirida o'zbekcha qisqa tarjima/izoh qo'y\n"
-        "- Javobingni qisqa (3-5 gap) va tushunarli qil\n"
-        "- Suhbatni davom ettirish uchun savol ber\n"
+        f"{topic_ctx}"
+        "Qoidalar:\n"
+        "1. O'zbek yoki rus tilida yozilsa ham javob ber.\n"
+        "2. Xatoni ko'rsat: ❌ [xato] → ✅ [to'g'ri].\n"
+        "3. Har javobda o'zbekcha qisqa tarjima/izoh qo'y.\n"
+        "4. Suhbatni davom ettiruvchi 1 ta savol ber.\n"
+        "5. 4-6 gapdan oshirma.\n"
     )
     if mode == "choice":
         base += (
-            "MUHIM: Javobingning eng OXIRIDA foydalanuvchi bosa oladigan 3-4 ta variant ber.\n"
-            "Variantlarni AYNAN quyidagi formatda yoz:\n"
+            "\nTUGMALI REJIM: Javob oxirida 3-4 variant ber:\n"
             "CHOICES: [variant1] | [variant2] | [variant3] | [variant4]\n"
-            "Variantlar rus tilida, qisqa (3-7 so'z).\n"
+            "Variantlar qisqa, rus tilida.\n"
         )
     return base
 
@@ -2439,6 +2454,8 @@ def api_chat():
     d        = request.get_json()
     user_msg = d.get("message", "").strip()
     mode     = d.get("mode", "text")
+    topic    = d.get("topic", "free")
+    custom_topic = d.get("custom_topic", "").strip()
     level    = db.get_setting("ai_conversation_level", "beginner")
 
     if not user_msg:
@@ -2446,7 +2463,7 @@ def api_chat():
 
     if not internet or not GEMINI_API_KEY:
         resp    = offline_ai_response(user_msg, level)
-        choices = _offline_choices(d.get("topic","greet"), level) if mode=="choice" else []
+        choices = _offline_choices(topic, level) if mode == "choice" else []
         db.save_chat("user", user_msg)
         db.save_chat("assistant", resp)
         db.add_xp(3)
@@ -2454,12 +2471,12 @@ def api_chat():
 
     history  = db.get_chat_history(10)
     messages = _build_messages(history, user_msg)
-    system   = _chat_system(level, mode)
+    system   = _chat_system(level, mode, topic, custom_topic)
     response = call_ai(messages, system_prompt=system, max_tokens=600)
 
     if not response:
         resp    = offline_ai_response(user_msg, level)
-        choices = _offline_choices(d.get("topic","greet"), level) if mode=="choice" else []
+        choices = _offline_choices(topic, level) if mode == "choice" else []
         db.save_chat("user", user_msg)
         db.save_chat("assistant", resp)
         return jsonify({"response": resp, "choices": choices, "ok": True, "offline": True})
@@ -2477,7 +2494,7 @@ def api_chat():
             choices = [c.strip().strip("[]") for c in raw.split("|") if c.strip()]
             response = response[:m.start()].strip()
         if not choices:
-            choices = _offline_choices(d.get("topic","greet"), level)
+            choices = _offline_choices(topic, level)
 
     return jsonify({"response": response, "choices": choices, "ok": True})
 
@@ -2489,31 +2506,44 @@ def api_chat_choices():
     internet = db.get_setting("internet_allowed", "on") == "on"
     d        = request.get_json()
     topic    = d.get("topic", "greet")
+    custom_topic = d.get("custom_topic", "").strip()
+    user_msg = d.get("message", "").strip()
     level    = db.get_setting("ai_conversation_level", "beginner")
 
     starters = {
-        "greet":   "Привет! Давай поговорим по-русски! Как тебя зовут?",
-        "travel":  "Расскажи мне: ты любишь путешествовать?",
-        "food":    "Какая твоя любимая еда?",
-        "family":  "Расскажи о своей семье.",
-        "weather": "Какая сегодня погода в твоём городе?",
-        "numbers": "Давай посчитаем! Сколько тебе лет?",
-        "hobbies": "Чем ты занимаешься в свободное время?",
-        "school":  "Ты учишься или работаешь?",
+        "greet":    "Привет! Давай поговорим по-русски! Как тебя зовут?",
+        "travel":   "Ты любишь путешествовать? Расскажи об этом.",
+        "food":     "Какая твоя любимая еда? Умеешь ли ты готовить?",
+        "family":   "Расскажи о своей семье. Сколько вас?",
+        "weather":  "Какая сегодня погода? Какой сезон тебе нравится?",
+        "numbers":  "Давай посчитаем! Сколько тебе лет?",
+        "hobbies":  "Чем ты занимаешься в свободное время?",
+        "school":   "Ты учишься или работаешь? Какой предмет любишь?",
+        "work":     "Где ты работаешь? Расскажи о своей профессии.",
+        "health":   "Как твоё здоровье? Занимаешься ли спортом?",
+        "sport":    "Какой спорт ты любишь? Ты болельщик?",
+        "city":     "Расскажи о своём городе. Что там интересного?",
+        "shopping": "Ты любишь шопинг? Где обычно покупаешь одежду?",
+        "cinema":   "Какой жанр фильмов ты любишь? Посоветуй что-нибудь.",
+        "tech":     "Ты интересуешься технологиями? Каким телефоном пользуешься?",
+        "free":     f"Давай поговорим о '{custom_topic}'!" if custom_topic else "Привет! О чём хочешь поговорить сегодня?",
     }
-    starter = starters.get(topic, starters["greet"])
+    if not user_msg:
+        user_msg = starters.get(topic, starters["greet"])
 
     if not internet or not GEMINI_API_KEY:
         choices = _offline_choices(topic, level)
-        db.save_chat("assistant", starter)
-        return jsonify({"response": starter, "choices": choices, "ok": True, "offline": True})
+        db.save_chat("assistant", user_msg)
+        return jsonify({"response": user_msg, "choices": choices, "ok": True, "offline": True})
 
-    system   = _chat_system(level, "choice")
-    response = call_ai([{"role":"user","content":starter}], system_prompt=system, max_tokens=400)
+    history  = db.get_chat_history(6)
+    messages = _build_messages(history, user_msg)
+    system   = _chat_system(level, "choice", topic, custom_topic)
+    response = call_ai(messages, system_prompt=system, max_tokens=500)
 
     if not response:
         choices = _offline_choices(topic, level)
-        return jsonify({"response": starter, "choices": choices, "ok": True, "offline": True})
+        return jsonify({"response": user_msg, "choices": choices, "ok": True, "offline": True})
 
     choices = []
     import re as _re
@@ -2535,11 +2565,11 @@ def api_chat_choices():
 @require_auth
 def api_chat_settings():
     if request.method == "GET":
-        keys = ["ai_conversation_level","ai_chat_mode","ai_topic","ai_personality"]
+        keys = ["ai_conversation_level","ai_chat_mode","ai_topic","ai_personality","ai_custom_topic","ai_tts_enabled","ai_tts_speed"]
         return jsonify({k: db.get_setting(k,"") for k in keys})
     d = request.get_json()
     for k,v in d.items():
-        if k in {"ai_conversation_level","ai_chat_mode","ai_topic","ai_personality"}:
+        if k in {"ai_conversation_level","ai_chat_mode","ai_topic","ai_personality","ai_custom_topic","ai_tts_enabled","ai_tts_speed"}:
             db.set_setting(k, str(v))
     return jsonify({"ok": True})
 
