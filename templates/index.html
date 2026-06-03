@@ -580,6 +580,7 @@
     <!-- Amallar -->
     <div class="csp-row csp-actions">
       <button class="btn btn-primary btn-sm" onclick="startFreshChat()">🔄 Yangi suhbat</button>
+      <button class="btn btn-ghost btn-sm"   onclick="openTeachPanel()">🧠 AI o'qitish</button>
       <button class="btn btn-ghost btn-sm"   onclick="exportChat()">📥 Eksport</button>
       <button class="btn btn-ghost btn-sm"   onclick="toggleChatSettings()">✕ Yopish</button>
     </div>
@@ -591,19 +592,25 @@
     <span class="ctb-label" id="ctbLabel">Erkin suhbat</span>
     <span class="ctb-level" id="ctbLevel">🟢 Boshlang'ich</span>
     <div style="margin-left:auto;display:flex;gap:6px;align-items:center">
+      <!-- Til tugmalari -->
+      <div class="lang-switch" id="langSwitch">
+        <button class="lang-btn active" data-lang="auto" onclick="setUiLang('auto',this)" title="Avtomatik til">🌐</button>
+        <button class="lang-btn" data-lang="uz"   onclick="setUiLang('uz',this)"   title="O'zbek tilida">🇺🇿</button>
+        <button class="lang-btn" data-lang="ru"   onclick="setUiLang('ru',this)"   title="Rus tilida">🇷🇺</button>
+      </div>
       <span class="ctb-tts" id="ctbTts">🔊</span>
       <button class="btn btn-ghost btn-sm" style="padding:3px 8px;font-size:11px"
-              onclick="toggleChatSettings()">Mavzu o'zgartirish</button>
+              onclick="toggleChatSettings()">⚙️</button>
     </div>
   </div>
 
   <!-- ── REJIM TUGMALARI ── -->
   <div class="chat-mode-bar">
-    <button id="modeBtnText"   class="mode-tab active"
-            onclick="switchChatMode('text')">⌨️ Matnli</button>
-    <button id="modeBtnChoice" class="mode-tab"
-            onclick="switchChatMode('choice')">🔘 Tugmali</button>
+    <button id="modeBtnText"   class="mode-tab active" onclick="switchChatMode('text')">⌨️ Matnli</button>
+    <button id="modeBtnChoice" class="mode-tab"        onclick="switchChatMode('choice')">🔘 Tugmali</button>
     <div class="chat-mode-hint" id="chatModeHint">Sen yozasan — AI javob beradi</div>
+    <button class="btn btn-ghost btn-sm" style="margin-left:auto;font-size:11px;padding:3px 8px"
+            onclick="openTeachPanel()" title="AI ga yangi ma'lumot o'rgatish">🧠 O'qitish</button>
   </div>
 
   <!-- ── XABARLAR MAYDONI ── -->
@@ -612,15 +619,38 @@
       <div class="msg-avatar">🤖</div>
       <div class="msg-body">
         <div class="msg-bubble">
-          Привет! Я ваш помощник — Алекс! 🇷🇺<br>
-          <span class="msg-uz">Salom! Men sizning rus tili yordamchingizman — Alex!</span><br>
-          <span class="msg-hint">⚙️ Sozlamalar orqali mavzu va rejim tanlang, keyin boshlang!</span>
+          Salom! Men — Alex! 🇷🇺🇺🇿<br>
+          <span class="msg-uz">Rus tilida ham, o'zbek tilida ham gaplashishingiz mumkin!</span><br>
+          <span class="msg-hint">💡 Til tugmasidan 🌐🇺🇿🇷🇺 tilni tanlang · 🧠 O'qitish tugmasi bilan men yangi narsalar o'rganaman!</span>
         </div>
         <div class="msg-actions">
           <button class="tts-msg-btn" onclick="ttsSpeakEl(this)"
-                  data-text="Привет! Я ваш помощник — Алекс!" title="Eshitish">🔊</button>
+                  data-text="Привет! Я ваш помощник Алекс!" title="Eshitish">🔊</button>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- ── DYNAMIC ACTION TUGMALAR (Telegram bot uslubi) ── -->
+  <div id="actionArea" class="action-area" style="display:none">
+    <div class="action-hint" id="actionHint">Tanlovingizni bosing:</div>
+    <div class="action-btns" id="actionBtns"></div>
+  </div>
+
+  <!-- ── TEACH INPUT (AI ga o'rgatish inline) ── -->
+  <div id="teachInputArea" class="teach-input-area" style="display:none">
+    <div class="tia-header">
+      <span class="tia-icon">🧠</span>
+      <span class="tia-title" id="tiaTitle">AI ga o'rgatish</span>
+      <button class="tia-close" onclick="closeTeachInput()">✕</button>
+    </div>
+    <div class="tia-question" id="tiaQuestion"></div>
+    <div class="tia-row">
+      <input type="text" id="tiaAnswerInput" class="form-input"
+             placeholder="Javobni yozing..."
+             onkeydown="if(event.key==='Enter')confirmTeach()">
+      <button class="btn btn-primary btn-sm" onclick="confirmTeach()">✅ O'rgat</button>
+      <button class="btn btn-ghost btn-sm"   onclick="closeTeachInput()">✕</button>
     </div>
   </div>
 
@@ -635,28 +665,90 @@
   <div id="textInputArea" class="chat-input-area">
     <div class="chat-input-wrap">
       <button class="chat-tool-btn" onclick="insertPhrase()" title="Tayyor ibora">💬</button>
-      <button class="chat-tool-btn" id="micBtn" onclick="toggleMic()"
-              title="Ovozdan matn (Speech-to-Text)">🎤</button>
+      <button class="chat-tool-btn" id="micBtn" onclick="toggleMic()" title="Mikrofon">🎤</button>
       <input  type="text" id="chatInput" class="chat-input"
-              placeholder="Ruscha yozing... (Enter = yuborish)"
+              placeholder="Yozing... (rus yoki o'zbek tilida)"
               onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChat();}">
       <button class="chat-tool-btn" onclick="clearChatInput()" title="Tozalash">✕</button>
       <button class="chat-send-btn" onclick="sendChat()">➤</button>
     </div>
-    <!-- Tez iboralar -->
     <div class="chat-quick-phrases">
       <span class="qp-label">Tez:</span>
       <button class="qp-btn" onclick="insertText('Я не понимаю.')">Tushunmadim</button>
       <button class="qp-btn" onclick="insertText('Повторите, пожалуйста.')">Qayta ayting</button>
-      <button class="qp-btn" onclick="insertText('Как это по-русски?')">Ruscha qanday?</button>
+      <button class="qp-btn" onclick="insertText('Как это по-русски?')">Ruscha?</button>
       <button class="qp-btn" onclick="insertText('Что значит ')">Nima degani?</button>
+      <button class="qp-btn" onclick="insertText('Буgun kun qanday o\'tdi?')">Bugun kayfiyat</button>
       <button class="qp-btn" onclick="insertText('Меня зовут ')">Ismim...</button>
-      <button class="qp-btn" onclick="insertText('Я хочу ')">Xohlayman...</button>
       <button class="qp-btn" onclick="insertText('Расскажи мне о ')">Aytib ber...</button>
+      <button class="qp-btn" onclick="insertText('Мени текшир!')">Test ber!</button>
     </div>
   </div>
 
 </section>
+
+<!-- ══════════════════════════════════════
+     AI O'QITISH PANELI (Modal)
+══════════════════════════════════════ -->
+<div id="teachModal" class="modal" style="display:none">
+  <div class="modal-overlay" onclick="closeModal('teachModal')"></div>
+  <div class="modal-content" style="max-width:560px">
+    <button class="modal-close" onclick="closeModal('teachModal')">✕</button>
+    <h2>🧠 AI ga Ma'lumot O'rgatish</h2>
+    <p style="color:var(--text2);font-size:13px;margin-bottom:16px">
+      AI bilmagan narsalarni o'rgating — keyingi safar avtomatik javob beradi!
+    </p>
+
+    <!-- Yangi ma'lumot qo'shish -->
+    <div class="teach-add-form">
+      <div class="form-row">
+        <label>❓ Savol / Mavzu</label>
+        <input type="text" id="teachQ" class="form-input" placeholder="Masalan: Toshkent nima?">
+      </div>
+      <div class="form-row">
+        <label>✅ Javob / Ma'lumot</label>
+        <textarea id="teachA" class="form-input" rows="3"
+                  placeholder="Masalan: Toshkent — O'zbekistonning poytaxti, aholisi 3 million."></textarea>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <div class="form-row" style="flex:1;min-width:120px">
+          <label>🌐 Til</label>
+          <select id="teachLang" class="form-input">
+            <option value="uz">🇺🇿 O'zbek</option>
+            <option value="ru">🇷🇺 Rus</option>
+            <option value="both">🌐 Ikkalasi</option>
+          </select>
+        </div>
+        <div class="form-row" style="flex:1;min-width:120px">
+          <label>📂 Kategoriya</label>
+          <select id="teachCat" class="form-input">
+            <option value="general">Umumiy</option>
+            <option value="geo">Geografiya</option>
+            <option value="history">Tarix</option>
+            <option value="science">Fan</option>
+            <option value="culture">Madaniyat</option>
+            <option value="person">Shaxslar</option>
+            <option value="word">So'z/Ibora</option>
+          </select>
+        </div>
+      </div>
+      <button class="btn btn-primary" onclick="submitTeach()" style="width:100%;margin-top:4px">
+        🧠 AI ga O'rgat
+      </button>
+    </div>
+
+    <!-- O'rgatilgan bilimlar ro'yxati -->
+    <div style="margin-top:20px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <h3 style="font-size:14px;font-weight:700">📚 AI xotirasi</h3>
+        <button class="btn btn-ghost btn-sm" onclick="loadKnowledgeList()">🔄</button>
+      </div>
+      <div id="knowledgeList" class="knowledge-list">
+        <div class="muted" style="padding:12px;text-align:center">Yuklanmoqda...</div>
+      </div>
+    </div>
+  </div>
+</div>
 
 <!-- ── SCHEDULE PAGE ── -->
 <section class="page" id="page-schedule">

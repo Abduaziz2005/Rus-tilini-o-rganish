@@ -1773,3 +1773,194 @@ input[type=range]::-webkit-slider-thumb {
   background: var(--accent);
   cursor: pointer;
 }
+
+
+/* ══════════════════════════════════════════════════
+   AI CHAT v4 — DYNAMIC TUGMALAR, TIL, O'QITISH
+══════════════════════════════════════════════════ */
+
+/* ── Til switch (🌐🇺🇿🇷🇺) ───────────────────────── */
+.lang-switch {
+  display: flex;
+  gap: 2px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  padding: 2px;
+}
+.lang-btn {
+  background: none;
+  border: none;
+  border-radius: 99px;
+  padding: 3px 8px;
+  font-size: 14px;
+  cursor: pointer;
+  color: var(--text3);
+  transition: all .15s;
+  line-height: 1.4;
+}
+.lang-btn:hover  { color: var(--text1); background: var(--bg2); }
+.lang-btn.active {
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 2px 6px rgba(79,142,247,.35);
+}
+
+/* ── ACTION TUGMALAR (Telegram-uslubi) ──────────── */
+.action-area {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 10px 0 4px;
+  border-top: 1px solid var(--border);
+  margin-top: 6px;
+  animation: msgIn .2s ease;
+}
+.action-hint {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: .4px;
+  padding: 0 2px;
+}
+.action-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+/* Asosiy action tugma */
+.action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 18px;
+  border-radius: 99px;
+  border: 1.5px solid var(--border);
+  background: var(--bg2);
+  color: var(--text1);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all .15s;
+  white-space: nowrap;
+}
+.action-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,.2); }
+.action-btn:active { transform: scale(.97); }
+
+/* Har xil rang: teach (yashil), skip (kulrang), confirm (ko'k) */
+.action-teach  { border-color: var(--green);  color: var(--green);  background: rgba(52,201,126,.07); }
+.action-skip   { border-color: var(--border); color: var(--text2);  background: var(--bg3); }
+.action-confirm{ border-color: var(--accent); color: var(--accent); background: rgba(79,142,247,.07); }
+.action-default{ border-color: var(--border); color: var(--text1);  background: var(--bg2); }
+
+.action-teach:hover   { background: rgba(52,201,126,.15); border-color: var(--green); }
+.action-skip:hover    { background: var(--bg3); border-color: var(--text2); }
+.action-confirm:hover { background: rgba(79,142,247,.15); }
+
+/* ── INLINE TEACH INPUT ─────────────────────────── */
+.teach-input-area {
+  background: rgba(52,201,126,.06);
+  border: 1.5px solid var(--green);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-top: 8px;
+  animation: msgIn .2s ease;
+}
+.tia-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.tia-icon   { font-size: 18px; }
+.tia-title  { font-size: 13px; font-weight: 700; color: var(--green); flex: 1; }
+.tia-close  { background: none; border: none; color: var(--text3); cursor: pointer;
+               font-size: 14px; padding: 2px 6px; border-radius: 4px; }
+.tia-close:hover { background: var(--bg3); color: var(--text1); }
+.tia-question {
+  font-size: 13px;
+  color: var(--text2);
+  margin-bottom: 8px;
+  font-style: italic;
+  padding: 6px 10px;
+  background: var(--bg3);
+  border-radius: var(--radius-sm);
+  border-left: 3px solid var(--green);
+}
+.tia-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.tia-row .form-input { flex: 1; padding: 8px 12px; font-size: 13px; }
+
+/* ── AI O'QITISH MODAL — KNOWLEDGE LIST ─────────── */
+.teach-add-form {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.knowledge-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.knowledge-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  transition: border-color .15s;
+}
+.knowledge-item:hover { border-color: var(--accent); }
+.ki-cat  { font-size: 20px; flex-shrink: 0; padding-top: 2px; }
+.ki-body { flex: 1; min-width: 0; }
+.ki-q    { font-weight: 700; font-size: 13px; color: var(--text1); margin-bottom: 3px; }
+.ki-a    { font-size: 12px; color: var(--text2); margin-bottom: 5px; line-height: 1.5; }
+.ki-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  color: var(--text3);
+}
+.ki-lang { font-size: 13px; }
+.ki-use  { padding: 1px 6px; background: var(--bg2); border-radius: 99px; border: 1px solid var(--border); }
+.ki-del  {
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity .15s;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+.knowledge-item:hover .ki-del { opacity: 1; }
+
+/* ── CHAT TOPIC BAR YANGILASH ───────────────────── */
+.chat-topic-bar {
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+
+/* ── TTS tugma stillari (mavjud ustiga patch) ─── */
+.tts-global-btn { min-width: 96px; justify-content: center; }
+
+/* ── Responsive ─────────────────────────────────── */
+@media (max-width: 640px) {
+  .action-btns { flex-direction: column; }
+  .action-btn  { width: 100%; justify-content: center; }
+  .lang-switch { gap: 1px; }
+  .lang-btn    { padding: 3px 6px; font-size: 13px; }
+  .tia-row     { flex-wrap: wrap; }
+}
