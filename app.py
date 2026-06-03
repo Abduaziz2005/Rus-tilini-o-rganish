@@ -324,6 +324,27 @@ class Database:
         if nav_gr < 2:
             self._insert_navigation_grammar()
 
+        # Yangi katta kategoriyalar
+        new_cats = [
+            ("time_ext",    15, "_insert_time_words"),
+            ("places",      15, "_insert_places_words"),
+            ("math",        15, "_insert_math_words"),
+            ("family_ext",  15, "_insert_family_words"),
+            ("clothing",    15, "_insert_clothing_words"),
+            ("animals",     15, "_insert_animals_words"),
+            ("transport",   15, "_insert_transport_words"),
+            ("body",        15, "_insert_body_words"),
+            ("school",      15, "_insert_school_words"),
+            ("weather",     15, "_insert_weather_words"),
+            ("house",       15, "_insert_house_words"),
+            ("sport",       15, "_insert_sport_words"),
+        ]
+        for cat, min_cnt, fn in new_cats:
+            cnt = self.conn.execute(
+                "SELECT COUNT(*) FROM words WHERE category=?", (cat,)).fetchone()[0]
+            if cnt < min_cnt:
+                getattr(self, fn)()
+
     def _insert_starter_words(self):
         words = [
             # Salomlashish
@@ -860,6 +881,464 @@ class Database:
             self.conn.execute("""INSERT OR IGNORE INTO grammar_rules
                 (title,level,category,content,examples_json,exercises_json)
                 VALUES(?,?,?,?,?,?)""", r)
+        self.conn.commit()
+
+    def _insert_time_words(self):
+        w = [
+            ("Секунда","Soniya","sye-KOON-da","time_ext","beginner","Одна секунда.","Bir soniya."),
+            ("Минута","Daqiqa","mee-NOO-ta","time_ext","beginner","Пять минут.","Besh daqiqa."),
+            ("Час","Soat","chas","time_ext","beginner","Один час.","Bir soat."),
+            ("День","Kun","dyen'","time_ext","beginner","Каждый день.","Har kuni."),
+            ("Неделя","Hafta","nye-DYE-lya","time_ext","beginner","Эта неделя.","Bu hafta."),
+            ("Месяц","Oy","MYE-syats","time_ext","beginner","Этот месяц.","Bu oy."),
+            ("Год","Yil","got","time_ext","beginner","Этот год.","Bu yil."),
+            ("Утро","Ertalab","OOT-ra","time_ext","beginner","Доброе утро.","Xayrli ertalab."),
+            ("Вечер","Kechqurun","VYE-chyer","time_ext","beginner","Добрый вечер.","Xayrli kech."),
+            ("Ночь","Tun","noch'","time_ext","beginner","Спокойной ночи.","Xayrli tun."),
+            ("Понедельник","Dushanba","pa-nye-DYEL'-neek","time_ext","beginner","В понедельник.","Dushanbada."),
+            ("Вторник","Seshanba","FTOR-neek","time_ext","beginner","Во вторник.","Seshanbada."),
+            ("Среда","Chorshanba","srye-DA","time_ext","beginner","В среду.","Chorshanbada."),
+            ("Четверг","Payshanba","chyet-VYERK","time_ext","beginner","В четверг.","Payshanbada."),
+            ("Пятница","Juma","PYAT-nee-tsa","time_ext","beginner","В пятницу.","Jumada."),
+            ("Суббота","Shanba","soob-BO-ta","time_ext","beginner","В субботу.","Shanbada."),
+            ("Воскресенье","Yakshanba","vas-krye-SYEN'-ye","time_ext","beginner","В воскресенье.","Yakshanbada."),
+            ("Январь","Yanvar","yan-VAR'","time_ext","beginner","В январе холодно.","Yanvarda sovuq."),
+            ("Февраль","Fevral","fyev-RAL'","time_ext","beginner","Февраль — короткий месяц.","Fevral — qisqa oy."),
+            ("Март","Mart","mart","time_ext","beginner","В марте весна.","Martda bahor."),
+            ("Апрель","Aprel","ap-RYEL'","time_ext","beginner","В апреле тепло.","Aprelda iliq."),
+            ("Май","May","may","time_ext","beginner","В мае цветут цветы.","Mayda gullar ochiladi."),
+            ("Июнь","Iyun","ee-YOON'","time_ext","beginner","В июне жарко.","Iyunda issiq."),
+            ("Июль","Iyul","ee-YOOL'","time_ext","beginner","Июль — самый жаркий.","Iyul — eng issiq oy."),
+            ("Август","Avgust","AV-goost","time_ext","beginner","В августе каникулы.","Avgustda ta'til."),
+            ("Сентябрь","Sentabr","syen-TYABR'","time_ext","beginner","Сентябрь — осень.","Sentabr — kuz."),
+            ("Октябрь","Oktabr","ak-TYABR'","time_ext","beginner","В октябре листья падают.","Oktabrda barglar to'kiladi."),
+            ("Ноябрь","Noyabr","na-YABR'","time_ext","beginner","В ноябре дождь.","Noyabrda yomg'ir."),
+            ("Декабрь","Dekabr","dye-KABR'","time_ext","beginner","В декабре снег.","Dekabrda qor."),
+            ("Сейчас","Hozir","sye-CHAS","time_ext","beginner","Сейчас 3 часа.","Hozir soat 3."),
+            ("Потом","Keyin","pa-TOM","time_ext","beginner","Потом поговорим.","Keyin gaplashamiz."),
+            ("Через","...dan keyin","CHE-ryes","time_ext","intermediate","Через час приду.","Bir soatdan keyin kelaman."),
+            ("Раньше","Avval/ilgari","RAN'-she","time_ext","intermediate","Раньше я жил здесь.","Avval bu yerda yashar edim."),
+            ("Позже","Keyinroq","POZ-zhe","time_ext","intermediate","Позже поговорим.","Keyinroq gaplashamiz."),
+            ("Давно","Qadim/ancha vaqt oldin","dav-NO","time_ext","intermediate","Это было давно.","Bu qadimda bo'lgan."),
+            ("Недавно","Yaqinda/endigina","nye-DAV-na","time_ext","intermediate","Недавно приехал.","Yaqinda keldi."),
+            ("Всегда","Doimo","fsyeg-DA","time_ext","beginner","Я всегда прихожу вовремя.","Men doimo o'z vaqtida kelaman."),
+            ("Никогда","Hech qachon","nee-kag-DA","time_ext","beginner","Я никогда не опаздываю.","Men hech qachon kechikmayman."),
+            ("Иногда","Ba'zan","ee-nag-DA","time_ext","beginner","Иногда я читаю.","Ba'zan kitob o'qiyman."),
+            ("Часто","Ko'p/tez-tez","CHAS-ta","time_ext","beginner","Я часто хожу туда.","Men u yerga tez-tez boraman."),
+            ("Редко","Kamdan-kam","RYET-ka","time_ext","intermediate","Он редко звонит.","U kamdan-kam qo'ng'iroq qiladi."),
+        ]
+        for row in w:
+            self.conn.execute("INSERT OR IGNORE INTO words (russian,uzbek,pronunciation,category,level,example_ru,example_uz) VALUES(?,?,?,?,?,?,?)", row)
+        self.conn.commit()
+
+    def _insert_places_words(self):
+        w = [
+            ("Школа","Maktab","SHKO-la","places","beginner","Я иду в школу.","Men maktabga boraman."),
+            ("Университет","Universitet","oo-nee-vyer-see-TYET","places","beginner","Я учусь в университете.","Men universitetda o'qiyman."),
+            ("Библиотека","Kutubxona","beeb-lee-a-TYE-ka","places","beginner","В библиотеке тихо.","Kutubxonada jim."),
+            ("Больница","Kasalxona","bal'-NEE-tsa","places","beginner","Он в больнице.","U kasalxonada."),
+            ("Аптека","Dorixona","ap-TYE-ka","places","beginner","Аптека рядом.","Dorixona yaqin."),
+            ("Кафе","Kafe","ka-FYE","places","beginner","Встретимся в кафе.","Kafeda uchrashamiz."),
+            ("Кино","Kino","kee-NO","places","beginner","Идём в кино?","Kinoga boramizmi?"),
+            ("Театр","Teatr","tye-ATR","places","beginner","Мы идём в театр.","Biz teatrga boramiz."),
+            ("Музей","Muzey","moo-ZYEY","places","beginner","В музее интересно.","Muzeyda qiziq."),
+            ("Стадион","Stadion","sta-dee-ON","places","beginner","На стадионе матч.","Stadionda match."),
+            ("Бассейн","Suzish havzasi","ba-SYEN'","places","beginner","Я плаваю в бассейне.","Men havzada suzaman."),
+            ("Офис","Ofis","O-fis","places","beginner","Я работаю в офисе.","Men ofisda ishlayman."),
+            ("Завод","Zavod","za-VOT","places","intermediate","Папа работает на заводе.","Dadam zavodda ishlaydi."),
+            ("Фабрика","Fabrika","FAB-ree-ka","places","intermediate","Фабрика далеко.","Fabrika uzoqda."),
+            ("Церковь","Cherkov","TSYER-kaf'","places","intermediate","Церковь старая.","Cherkov qadimiy."),
+            ("Мечеть","Masjid","mye-CHYET'","places","beginner","Мечеть красивая.","Masjid chiroyli."),
+            ("Кладбище","Qabriston","KLAD-bee-shche","places","intermediate","Кладбище рядом.","Qabriston yaqin."),
+            ("Тюрьма","Qamoqxona","TYOOR'-ma","places","intermediate","Тюрьма строгая.","Qamoqxona qattiq."),
+            ("Гараж","Garaj","ga-RAZH","places","beginner","Машина в гараже.","Mashina garajda."),
+            ("Склад","Ombor","sklad","places","intermediate","На складе товары.","Omborda tovarlar bor."),
+            ("Пляж","Plyaj","plyazh","places","beginner","Пляж красивый.","Plyaj chiroyli."),
+            ("Деревня","Qishloq","dye-RYEV-nya","places","beginner","Я из деревни.","Men qishloqdan."),
+            ("Поле","Dala","PO-lye","places","beginner","Поле зелёное.","Dala yashil."),
+            ("Ферма","Ferma","FYER-ma","places","beginner","На ферме коровы.","Fermada sigirlar bor."),
+            ("Кухня","Oshxona/Kuhnya","KOOKH-nya","places","beginner","Мама на кухне.","Onam oshxonada."),
+            ("Ванная","Hammom","VAN-na-ya","places","beginner","Ванная свободна.","Hammom bo'sh."),
+            ("Спальня","Yotoqxona","SPAL'-nya","places","beginner","Спальня большая.","Yotoqxona katta."),
+            ("Гостиная","Mehmonxona (xona)","gas-TEE-na-ya","places","beginner","Мы в гостиной.","Biz mehmonxonadadamiz."),
+            ("Подвал","Yerto'la","pad-VAL","places","intermediate","Подвал тёмный.","Yerto'la qorong'u."),
+            ("Чердак","Chordoq","chyer-DAK","places","intermediate","На чердаке пыль.","Chordoqda chang bor."),
+        ]
+        for row in w:
+            self.conn.execute("INSERT OR IGNORE INTO words (russian,uzbek,pronunciation,category,level,example_ru,example_uz) VALUES(?,?,?,?,?,?,?)", row)
+        self.conn.commit()
+
+    def _insert_math_words(self):
+        w = [
+            ("Плюс","Qo'shish/plyus","plyoos","math","beginner","Два плюс два.","Ikki plyus ikki."),
+            ("Минус","Ayirish/minus","MEE-noos","math","beginner","Пять минус три.","Besh minus uch."),
+            ("Умножить","Ko'paytirish","oom-NO-zheet'","math","beginner","Три умножить на два.","Uchni ikkiga ko'paytirish."),
+            ("Разделить","Bo'lish","raz-dye-LEET'","math","beginner","Десять разделить на два.","O'nni ikkiga bo'lish."),
+            ("Равно","Teng","rav-NO","math","beginner","Два плюс два равно четыре.","Ikki plyus ikki teng to'rt."),
+            ("Число","Son","CHEES-la","math","beginner","Назовите число.","Son ayting."),
+            ("Цифра","Raqam (belgi)","TSEEF-ra","math","beginner","Цифра семь.","Yetti raqami."),
+            ("Сумма","Yig'indi","SOOM-ma","math","intermediate","Сумма равна десяти.","Yig'indi o'nga teng."),
+            ("Разность","Ayirma","RAZ-nast'","math","intermediate","Разность равна трём.","Ayirma uchga teng."),
+            ("Произведение","Ko'paytma","pra-eez-vye-DYE-nee-ye","math","intermediate","Произведение равно шести.","Ko'paytma oltiga teng."),
+            ("Частное","Bo'linma","CHAST-na-ye","math","intermediate","Частное равно пяти.","Bo'linma beshga teng."),
+            ("Процент","Foiz","pra-TSENT","math","beginner","Пятьдесят процентов.","Ellik foiz."),
+            ("Дробь","Kasr","drob'","math","intermediate","Простая дробь.","Oddiy kasr."),
+            ("Квадрат","Kvadrat","kvad-RAT","math","intermediate","Квадрат числа.","Sonning kvadrati."),
+            ("Корень","Ildiz","KO-ryen'","math","intermediate","Квадратный корень.","Kvadrat ildiz."),
+            ("Угол","Burchak","OO-gal","math","intermediate","Прямой угол.","To'g'ri burchak."),
+            ("Треугольник","Uchburchak","trye-oo-GOL'-neek","math","intermediate","Равносторонний треугольник.","Teng tomonli uchburchak."),
+            ("Квадрат (фигура)","Kvadrat (shakl)","kvad-RAT","math","intermediate","Квадрат имеет четыре стороны.","Kvadratning to'rt tomoni bor."),
+            ("Круг","Doira","krook","math","intermediate","Начертите круг.","Doira chizing."),
+            ("Прямоугольник","To'rtburchak","prya-ma-oo-GOL'-neek","math","intermediate","Прямоугольник.","To'g'ri to'rtburchak."),
+            ("Длина","Uzunlik","dlee-NA","math","intermediate","Длина три метра.","Uzunligi uch metr."),
+            ("Ширина","Kenglik","shee-ree-NA","math","intermediate","Ширина два метра.","Kengligi ikki metr."),
+            ("Высота","Balandlik","vy-sa-TA","math","intermediate","Высота пять метров.","Balandligi besh metr."),
+            ("Задача","Masala","za-DA-cha","math","beginner","Решите задачу.","Masalani yeching."),
+            ("Пример","Misol","pree-MYER","math","beginner","Решите пример.","Misolni yeching."),
+            ("Ответ","Javob","at-VYET","math","beginner","Правильный ответ.","To'g'ri javob."),
+            ("Больше","Katta (ko'proq)","BOL'-she","math","beginner","Пять больше трёх.","Besh uchdan katta."),
+            ("Меньше","Kichik (kamroq)","MYEN'-she","math","beginner","Два меньше пяти.","Ikki beshdan kichik."),
+            ("Чётный","Juft","CHYOT-ny","math","intermediate","Чётное число.","Juft son."),
+            ("Нечётный","Toq","nye-CHYOT-ny","math","intermediate","Нечётное число.","Toq son."),
+            ("Отрицательный","Manfiy","at-ree-TSA-tyel'-ny","math","advanced","Отрицательное число.","Manfiy son."),
+            ("Положительный","Musbat","pa-la-ZHEE-tyel'-ny","math","advanced","Положительное число.","Musbat son."),
+            ("Бесконечность","Cheksizlik","byes-ka-NYECH-nast'","math","advanced","Бесконечность.","Cheksizlik."),
+        ]
+        for row in w:
+            self.conn.execute("INSERT OR IGNORE INTO words (russian,uzbek,pronunciation,category,level,example_ru,example_uz) VALUES(?,?,?,?,?,?,?)", row)
+        self.conn.commit()
+
+    def _insert_family_words(self):
+        w = [
+            ("Семья","Oila","syem'-YA","family_ext","beginner","Моя семья большая.","Mening oilam katta."),
+            ("Родители","Ota-ona","ra-DEE-tye-lee","family_ext","beginner","Мои родители дома.","Mening ota-onam uyda."),
+            ("Отец","Ota","a-TYETS","family_ext","beginner","Мой отец врач.","Mening otam shifokor."),
+            ("Мать","Ona","mat'","family_ext","beginner","Моя мать учитель.","Mening onam o'qituvchi."),
+            ("Сын","O'g'il","syn","family_ext","beginner","У меня два сына.","Menda ikki o'g'il bor."),
+            ("Дочь","Qiz (farzand)","doch'","family_ext","beginner","Моя дочь умная.","Mening qizim aqlli."),
+            ("Брат","Aka/uka","brat","family_ext","beginner","Мой брат студент.","Mening ukam talaba."),
+            ("Сестра","Opa/singil","syes-TRA","family_ext","beginner","Сестра красивая.","Singil chiroyli."),
+            ("Дедушка","Bobo","DYED-oosh-ka","family_ext","beginner","Дедушка мудрый.","Bobo dono."),
+            ("Бабушка","Buvi","BA-boosh-ka","family_ext","beginner","Бабушка добрая.","Buvi mehribon."),
+            ("Внук","Nevara (o'g'il)","vnook","family_ext","beginner","Внук играет.","Nevara o'ynaydi."),
+            ("Внучка","Nevara (qiz)","VNOO-chka","family_ext","beginner","Внучка учится.","Nevara o'qiydi."),
+            ("Дядя","Amaki/tog'a","DYA-dya","family_ext","beginner","Дядя добрый.","Amaki yaxshi."),
+            ("Тётя","Xola/amma","TYO-tya","family_ext","beginner","Тётя приехала.","Xola keldi."),
+            ("Племянник","Jiyani (o'g'il)","plyem-YAN-neek","family_ext","intermediate","Племянник школьник.","Jiyanim o'quvchi."),
+            ("Племянница","Jiyani (qiz)","plyem-YAN-nee-tsa","family_ext","intermediate","Племянница умная.","Jiyanim aqlli."),
+            ("Двоюродный брат","Amakivachcha","dva-YOO-rad-ny brat","family_ext","intermediate","Двоюродный брат далеко.","Amakivachcha uzoqda."),
+            ("Муж","Er","moozh","family_ext","beginner","Мой муж добрый.","Erim yaxshi."),
+            ("Жена","Xotin","zhye-NA","family_ext","beginner","Его жена красивая.","Uning xotini chiroyli."),
+            ("Тесть","Qaynota","tyest'","family_ext","intermediate","Тесть строгий.","Qaynota qattiq."),
+            ("Тёща","Qaynonа","TYOSH-cha","family_ext","intermediate","Тёща добрая.","Qaynona mehribon."),
+            ("Свёкор","Qaynotа (erning otasi)","SVYO-kar","family_ext","intermediate","Свёкор работает.","Qaynota ishlaydi."),
+            ("Свекровь","Qaynona (erning onasi)","svyek-ROF'","family_ext","intermediate","Свекровь мудрая.","Qaynona dono."),
+            ("Зять","Kuyov","zyat'","family_ext","intermediate","Зять приехал.","Kuyov keldi."),
+            ("Невестка","Kelin","nye-VYES-tka","family_ext","intermediate","Невестка красивая.","Kelin chiroyli."),
+            ("Близнецы","Egizaklar","bleez-nyet-SY","family_ext","intermediate","У них близнецы.","Ularda egizaklar bor."),
+            ("Ребёнок","Bola","rye-BYO-nak","family_ext","beginner","Маленький ребёнок.","Kichik bola."),
+            ("Младенец","Go'dak","mla-DYE-nyets","family_ext","beginner","Младенец спит.","Go'dak uxlaydi."),
+            ("Старший","Katta (tomonida)","STAR-shiy","family_ext","beginner","Старший брат.","Katta aka."),
+            ("Младший","Kichik (tomonida)","MLAT-shiy","family_ext","beginner","Младший брат.","Kichik uka."),
+        ]
+        for row in w:
+            self.conn.execute("INSERT OR IGNORE INTO words (russian,uzbek,pronunciation,category,level,example_ru,example_uz) VALUES(?,?,?,?,?,?,?)", row)
+        self.conn.commit()
+
+    def _insert_clothing_words(self):
+        w = [
+            ("Одежда","Kiyim","a-DYEZh-da","clothing","beginner","Новая одежда.","Yangi kiyim."),
+            ("Рубашка","Ko'ylak (erkak)","roo-BASH-ka","clothing","beginner","Белая рубашка.","Oq ko'ylak."),
+            ("Платье","Ko'ylak (ayol)","PLA-tye","clothing","beginner","Красивое платье.","Chiroyli ko'ylak."),
+            ("Брюки","Shim","BRYOO-kee","clothing","beginner","Чёрные брюки.","Qora shim."),
+            ("Джинсы","Jinsi shim","DZHEEN-sy","clothing","beginner","Синие джинсы.","Ko'k jinsi."),
+            ("Юбка","Yubka","YOOP-ka","clothing","beginner","Короткая юбка.","Qisqa yubka."),
+            ("Пиджак","Kostyum (jacket)","peed-ZHAK","clothing","beginner","Синий пиджак.","Ko'k kostyum."),
+            ("Куртка","Kurtka","KOORT-ka","clothing","beginner","Тёплая куртка.","Iliq kurtka."),
+            ("Пальто","Palto","pal'-TO","clothing","beginner","Зимнее пальто.","Qishki palto."),
+            ("Шуба","Mo'ynali palto","SHOO-ba","clothing","intermediate","Дорогая шуба.","Qimmat mo'ynali palto."),
+            ("Свитер","Sviter","SVEE-tyer","clothing","beginner","Тёплый свитер.","Iliq sviter."),
+            ("Майка","Futbolka/mayka","MAY-ka","clothing","beginner","Белая майка.","Oq mayka."),
+            ("Носки","Paypoq","NOS-kee","clothing","beginner","Чистые носки.","Toza paypoq."),
+            ("Нижнее бельё","Ichki kiyim","NEEZH-nye-ye byel'-YO","clothing","intermediate","Купить бельё.","Ichki kiyim sotib olish."),
+            ("Ботинки","Botinka","ba-TEEN-kee","clothing","beginner","Кожаные ботинки.","Charm botinka."),
+            ("Туфли","Tufliya","TOOF-lee","clothing","beginner","Красивые туфли.","Chiroyli tufliya."),
+            ("Кроссовки","Krossovka","kras-SOF-kee","clothing","beginner","Спортивные кроссовки.","Sport krossovkasi."),
+            ("Тапочки","Shippak","TA-pach-kee","clothing","beginner","Домашние тапочки.","Uy shippagi."),
+            ("Шапка","Qalpoq/do'ppi","SHAP-ka","clothing","beginner","Тёплая шапка.","Iliq qalpoq."),
+            ("Шарф","Sharf","sharf","clothing","beginner","Длинный шарф.","Uzun sharf."),
+            ("Перчатки","Qo'lqop","pyer-CHAT-kee","clothing","beginner","Кожаные перчатки.","Charm qo'lqop."),
+            ("Галстук","Galstuk","GAL-stook","clothing","beginner","Красный галстук.","Qizil galstuk."),
+            ("Ремень","Kamar","rye-MYEN'","clothing","beginner","Кожаный ремень.","Charm kamar."),
+            ("Сумка","Sumka","SOOM-ka","clothing","beginner","Большая сумка.","Katta sumka."),
+            ("Рюкзак","Ryukzak","ryook-ZAK","clothing","beginner","Школьный рюкзак.","Maktab ryukzaki."),
+            ("Очки","Ko'zoynak","ach-KEE","clothing","beginner","Солнечные очки.","Quyosh ko'zoynagi."),
+            ("Украшение","Bezak/taqinchoq","ook-ra-SHYE-nee-ye","clothing","intermediate","Красивое украшение.","Chiroyli bezak."),
+            ("Кольцо","Uzuk","kal'-TSO","clothing","beginner","Золотое кольцо.","Oltin uzuk."),
+            ("Серьги","Sirg'a","SYER'-gee","clothing","beginner","Красивые серьги.","Chiroyli sirg'a."),
+            ("Размер","O'lcham","raz-MYER","clothing","beginner","Какой размер?","Qanday o'lcham?"),
+        ]
+        for row in w:
+            self.conn.execute("INSERT OR IGNORE INTO words (russian,uzbek,pronunciation,category,level,example_ru,example_uz) VALUES(?,?,?,?,?,?,?)", row)
+        self.conn.commit()
+
+    def _insert_animals_words(self):
+        w = [
+            ("Собака","It","sa-BA-ka","animals","beginner","Собака лает.","It huradi."),
+            ("Кошка","Mushuk","KOSH-ka","animals","beginner","Кошка мяукает.","Mushuk miyovlaydi."),
+            ("Корова","Sigir","ka-RO-va","animals","beginner","Корова даёт молоко.","Sigir sut beradi."),
+            ("Лошадь","Ot","LO-shad'","animals","beginner","Лошадь быстрая.","Ot tez."),
+            ("Овца","Qo'y","af-TSA","animals","beginner","Белая овца.","Oq qo'y."),
+            ("Козёл / Коза","Echki","ka-ZYO-la / ka-ZA","animals","beginner","Коза на горе.","Echki tog'da."),
+            ("Курица","Tovuq","KOO-ree-tsa","animals","beginner","Курица несёт яйца.","Tovuq tuxum qo'yadi."),
+            ("Утка","O'rdak","OOT-ka","animals","beginner","Утка плавает.","O'rdak suzadi."),
+            ("Свинья","Cho'chqa","sveen'-YA","animals","beginner","Розовая свинья.","Pushti cho'chqa."),
+            ("Верблюд","Tuya","vyer-BLYOOT","animals","beginner","Верблюд в пустыне.","Tuya cho'lda."),
+            ("Лев","Sher","lyef","animals","beginner","Лев — царь зверей.","Sher hayvonlar shohi."),
+            ("Тигр","Yo'lbars","teegr","animals","beginner","Тигр прыгает.","Yo'lbars sakradi."),
+            ("Медведь","Ayiq","myed-VYED'","animals","beginner","Медведь большой.","Ayiq katta."),
+            ("Волк","Bo'ri","volk","animals","beginner","Серый волк.","Kulrang bo'ri."),
+            ("Лиса","Tulki","lee-SA","animals","beginner","Хитрая лиса.","Ayyor tulki."),
+            ("Заяц","Quyon","ZA-yats","animals","beginner","Белый заяц.","Oq quyon."),
+            ("Слон","Fil","slon","animals","beginner","Слон большой.","Fil katta."),
+            ("Жираф","Jirafa","zhee-RAF","animals","beginner","Жираф высокий.","Jirafa baland bo'yli."),
+            ("Обезьяна","Maymun","a-byes'-YA-na","animals","beginner","Обезьяна умная.","Maymun aqlli."),
+            ("Крокодил","Timsoh","kra-ka-DEEL","animals","beginner","Крокодил опасный.","Timsoh xavfli."),
+            ("Змея","Ilon","zmye-YA","animals","beginner","Ядовитая змея.","Zaharli ilon."),
+            ("Птица","Qush","PTEE-tsa","animals","beginner","Птица летит.","Qush uchadi."),
+            ("Орёл","Burgut","a-RYOL","animals","beginner","Орёл летит высоко.","Burgut baland uchadi."),
+            ("Рыба","Baliq","RY-ba","animals","beginner","Рыба в реке.","Baliq daryoda."),
+            ("Бабочка","Kapalak","BA-bach-ka","animals","beginner","Красивая бабочка.","Chiroyli kapalak."),
+            ("Пчела","Asalari","pchye-LA","animals","beginner","Пчела жалит.","Asalari chaqadi."),
+            ("Муравей","Chumoli","moo-ra-VYEY","animals","beginner","Трудолюбивый муравей.","Mehnatkash chumoli."),
+            ("Черепаха","Toshbaqa","chye-rye-PA-kha","animals","beginner","Медленная черепаха.","Sekin toshbaqa."),
+            ("Попугай","To'ti qush","pa-poo-GAY","animals","beginner","Попугай говорит.","To'ti qush gapiradi."),
+            ("Хомяк","Hamster","kha-MYAK","animals","beginner","Маленький хомяк.","Kichik hamster."),
+        ]
+        for row in w:
+            self.conn.execute("INSERT OR IGNORE INTO words (russian,uzbek,pronunciation,category,level,example_ru,example_uz) VALUES(?,?,?,?,?,?,?)", row)
+        self.conn.commit()
+
+    def _insert_transport_words(self):
+        w = [
+            ("Машина","Mashina","ma-SHEE-na","transport","beginner","Моя машина красная.","Mening mashinam qizil."),
+            ("Велосипед","Velosiped","vye-la-see-PYET","transport","beginner","Я езжу на велосипеде.","Men velosipedda yuraman."),
+            ("Мотоцикл","Mototsikl","ma-ta-TSYEKL","transport","beginner","Быстрый мотоцикл.","Tez mototsikl."),
+            ("Автобус","Avtobus","af-TO-boos","transport","beginner","Автобус опоздал.","Avtobus kechikdi."),
+            ("Троллейбус","Trolleybus","tral-LYEY-boos","transport","beginner","Троллейбус тихий.","Trolleybus jim."),
+            ("Трамвай","Tramvay","tram-VAY","transport","beginner","Трамвай идёт.","Tramvay ketyapti."),
+            ("Метро","Metro","myet-RO","transport","beginner","Метро быстрое.","Metro tez."),
+            ("Поезд","Poyezd","PO-yezd","transport","beginner","Поезд отходит.","Poyezd ketmoqda."),
+            ("Самолёт","Samolyot","sa-ma-LYOT","transport","beginner","Самолёт летит.","Samolyot uchmoqda."),
+            ("Вертолёт","Vertolyot","vyer-ta-LYOT","transport","intermediate","Вертолёт над городом.","Vertolyot shahar ustida."),
+            ("Корабль","Kema","ka-RABL'","transport","beginner","Корабль в море.","Kema dengizda."),
+            ("Лодка","Qayiq","LOT-ka","transport","beginner","Маленькая лодка.","Kichik qayiq."),
+            ("Такси","Taksi","tak-SEE","transport","beginner","Вызвать такси.","Taksi chaqirish."),
+            ("Грузовик","Yuk mashinasi","groo-za-VEEK","transport","intermediate","Большой грузовик.","Katta yuk mashinasi."),
+            ("Скорая помощь","Tez yordam","SKO-ra-ya PO-mash'","transport","beginner","Скорая помощь едет.","Tez yordam kelyapti."),
+            ("Пожарная машина","O't o'chirish mashinasi","pa-ZHAR-na-ya","transport","beginner","Пожарная машина.","O't o'chirish mashinasi."),
+            ("Водитель","Haydovchi","va-DEE-tyel'","transport","beginner","Хороший водитель.","Yaxshi haydovchi."),
+            ("Пассажир","Yo'lovchi","pa-sa-ZHEER","transport","beginner","Пассажиры в автобусе.","Yo'lovchilar avtobusda."),
+            ("Билет","Chipta","bee-LYET","transport","beginner","Купить билет.","Chipta sotib olish."),
+            ("Остановка","Bekat","as-ta-NOF-ka","transport","beginner","Следующая остановка.","Keyingi bekat."),
+            ("Расписание","Jadval","ras-pee-SA-nee-ye","transport","intermediate","Расписание поездов.","Poyezdlar jadvali."),
+            ("Платформа","Platforma","plat-FOR-ma","transport","beginner","На платформе люди.","Platformada odamlar."),
+            ("Перрон","Peron","pye-RON","transport","intermediate","Поезд на перроне.","Poyezd peronda."),
+            ("Шоссе","Avtomobil yo'li","shas-SE","transport","intermediate","Широкое шоссе.","Keng avtomobil yo'li."),
+            ("Перекрёсток","Chorraxa","pye-rye-KRYOS-tak","transport","intermediate","На перекрёстке.","Chorrahada."),
+            ("Светофор","Svetofor","svye-ta-FOR","transport","beginner","Красный светофор.","Qizil svetofor."),
+            ("Парковка","Parking","par-KOF-ka","transport","beginner","Бесплатная парковка.","Bepul parking."),
+            ("Бензин","Benzin","byen-ZEEN","transport","beginner","Заправить бензин.","Benzin quyish."),
+            ("Заправка","Benzin quyish joyi","za-PRAF-ka","transport","intermediate","Заправка рядом.","Benzin stantsiyasi yaqin."),
+            ("Водительские права","Haydovchilik guvohnomasi","va-DEE-tyel'-skee-ye pra-VA","transport","intermediate","Права дома.","Guvohnoma uyda."),
+        ]
+        for row in w:
+            self.conn.execute("INSERT OR IGNORE INTO words (russian,uzbek,pronunciation,category,level,example_ru,example_uz) VALUES(?,?,?,?,?,?,?)", row)
+        self.conn.commit()
+
+    def _insert_body_words(self):
+        w = [
+            ("Голова","Bosh","ga-la-VA","body","beginner","Болит голова.","Bosh og'riydi."),
+            ("Волосы","Soch","VO-la-sy","body","beginner","Тёмные волосы.","Qora soch."),
+            ("Лицо","Yuz","lee-TSO","body","beginner","Красивое лицо.","Chiroyli yuz."),
+            ("Глаз","Ko'z","glas","body","beginner","Синие глаза.","Ko'k ko'zlar."),
+            ("Нос","Burun","nos","body","beginner","Длинный нос.","Uzun burun."),
+            ("Рот","Og'iz","rot","body","beginner","Открой рот.","Og'zingni och."),
+            ("Зуб","Tish","zoop","body","beginner","Болит зуб.","Tish og'riydi."),
+            ("Язык","Til (organ)","ya-ZYK","body","beginner","Высуни язык.","Tilingni ko'rsat."),
+            ("Ухо","Quloq","OO-kha","body","beginner","Болит ухо.","Quloq og'riydi."),
+            ("Шея","Bo'yin","shye-YA","body","beginner","Длинная шея.","Uzun bo'yin."),
+            ("Плечо","Yelka","plye-CHO","body","beginner","Широкие плечи.","Keng yelkalar."),
+            ("Рука","Qo'l","roo-KA","body","beginner","Правая рука.","O'ng qo'l."),
+            ("Палец","Barmoq","PA-lyets","body","beginner","Десять пальцев.","O'n barmoq."),
+            ("Ноготь","Tirnoq","NO-gat'","body","beginner","Длинные ногти.","Uzun tirnoqlar."),
+            ("Грудь","Ko'krak","groot'","body","beginner","Грудь болит.","Ko'krak og'riydi."),
+            ("Живот","Qorin","zhee-VOT","body","beginner","Болит живот.","Qorin og'riydi."),
+            ("Спина","Orqa","spee-NA","body","beginner","Болит спина.","Orqa og'riydi."),
+            ("Нога","Oyoq","na-GA","body","beginner","Правая нога.","O'ng oyoq."),
+            ("Колено","Tizza","ka-LYE-na","body","beginner","Болит колено.","Tizza og'riydi."),
+            ("Стопа","Tovon","sta-PA","body","beginner","Болит стопа.","Tovon og'riydi."),
+            ("Сердце","Yurak","SYERTS-ye","body","beginner","Быстрое сердце.","Yurak tez uryapti."),
+            ("Лёгкие","O'pka","LYOKH-kee-ye","body","intermediate","Здоровые лёгкие.","Sog'lom o'pka."),
+            ("Печень","Jigar","PYE-chyen'","body","intermediate","Болит печень.","Jigar og'riydi."),
+            ("Желудок","Me'da","zhye-LOO-dak","body","intermediate","Болит желудок.","Me'da og'riydi."),
+            ("Кровь","Qon","krof'","body","intermediate","Группа крови.","Qon guruhi."),
+            ("Кость","Suyak","kost'","body","intermediate","Сломана кость.","Suyak singan."),
+            ("Мышца","Mushak","MYSH-tsa","body","intermediate","Сильные мышцы.","Kuchli mushaklar."),
+            ("Кожа","Teri","KO-zha","body","beginner","Нежная кожа.","Nozik teri."),
+            ("Ноготь","Tirnoq","NO-gat'","body","beginner","Стричь ногти.","Tirnoq kesish."),
+            ("Мозг","Miya","mozg","body","intermediate","Работа мозга.","Miyaning ishi."),
+        ]
+        for row in w:
+            self.conn.execute("INSERT OR IGNORE INTO words (russian,uzbek,pronunciation,category,level,example_ru,example_uz) VALUES(?,?,?,?,?,?,?)", row)
+        self.conn.commit()
+
+    def _insert_school_words(self):
+        w = [
+            ("Урок","Dars","oo-ROK","school","beginner","Урок начался.","Dars boshlandi."),
+            ("Учебник","Darslik","oo-CHYEB-neek","school","beginner","Открой учебник.","Darslikni och."),
+            ("Тетрадь","Daftar","tyet-RAD'","school","beginner","Новая тетрадь.","Yangi daftar."),
+            ("Ручка","Ruchka","ROOCH-ka","school","beginner","Синяя ручка.","Ko'k ruchka."),
+            ("Карандаш","Qalam","ka-ran-DASH","school","beginner","Острый карандаш.","O'tkir qalam."),
+            ("Линейка","Chizg'ich","lee-NYEY-ka","school","beginner","Деревянная линейка.","Yog'och chizg'ich."),
+            ("Ластик","O'chirg'ich","LAS-teek","school","beginner","Резиновый ластик.","Rezina o'chirg'ich."),
+            ("Доска","Taxtа","das-KA","school","beginner","Пишите на доске.","Taxtada yozing."),
+            ("Мел","Bo'r","myel","school","beginner","Белый мел.","Oq bo'r."),
+            ("Парта","Parta","PAR-ta","school","beginner","Сиди за партой.","Partada o'tir."),
+            ("Класс","Sinf/xona","klas","school","beginner","Наш класс.","Bizning sinfimiz."),
+            ("Учитель","O'qituvchi","oo-CHEE-tyel'","school","beginner","Добрый учитель.","Yaxshi o'qituvchi."),
+            ("Ученик","O'quvchi (o'g'il)","oo-chye-NEEK","school","beginner","Хороший ученик.","Yaxshi o'quvchi."),
+            ("Ученица","O'quvchi (qiz)","oo-chye-NEE-tsa","school","beginner","Умная ученица.","Aqlli o'quvchi."),
+            ("Директор","Direktor","dee-RYEK-tar","school","beginner","Директор школы.","Maktab direktori."),
+            ("Домашнее задание","Uy vazifa","da-MASH-nye-ye za-DA-nee-ye","school","beginner","Сделай домашнее задание.","Uy vazifasini qil."),
+            ("Контрольная","Nazorat ishi","kan-TROL'-na-ya","school","beginner","Завтра контрольная.","Ertaga nazorat ishi."),
+            ("Оценка","Baho","a-TSYEN-ka","school","beginner","Хорошая оценка.","Yaxshi baho."),
+            ("Пятёрка","Besh (baho)","pya-TYO-rka","school","beginner","Получил пятёрку.","Besh oldi."),
+            ("Двойка","Ikki (baho)","DVOY-ka","school","beginner","Получил двойку.","Ikki oldi."),
+            ("Каникулы","Ta'til","ka-NEE-koo-ly","school","beginner","Летние каникулы.","Yozgi ta'til."),
+            ("Расписание","Dars jadvali","ras-pee-SA-nee-ye","school","beginner","Расписание уроков.","Dars jadvali."),
+            ("Перемена","Tanaffus","pye-rye-MYE-na","school","beginner","Во время перемены.","Tanaffus vaqtida."),
+            ("Столовая","Oshxona (maktab)","sta-LO-va-ya","school","beginner","В столовой вкусно.","Oshxonada mazali."),
+            ("Библиотека","Kutubxona","beeb-lee-a-TYE-ka","school","beginner","В библиотеке тихо.","Kutubxonada jim."),
+            ("Спортзал","Sport zal","SPORT-zal","school","beginner","Урок в спортзале.","Dars sport zalida."),
+            ("Математика","Matematika","ma-tye-MA-tee-ka","school","beginner","Урок математики.","Matematika darsi."),
+            ("Русский язык","Rus tili","ROOS-keey ya-ZYK","school","beginner","Урок русского языка.","Rus tili darsi."),
+            ("История","Tarix","ees-TO-ree-ya","school","beginner","Урок истории.","Tarix darsi."),
+            ("Физика","Fizika","FEE-zee-ka","school","intermediate","Трудная физика.","Qiyin fizika."),
+        ]
+        for row in w:
+            self.conn.execute("INSERT OR IGNORE INTO words (russian,uzbek,pronunciation,category,level,example_ru,example_uz) VALUES(?,?,?,?,?,?,?)", row)
+        self.conn.commit()
+
+    def _insert_weather_words(self):
+        w = [
+            ("Погода","Ob-havo","pa-GO-da","weather","beginner","Хорошая погода.","Yaxshi ob-havo."),
+            ("Температура","Harorat","teem-pye-ra-TOO-ra","weather","beginner","Температура 30 градусов.","Harorat 30 daraja."),
+            ("Градус","Daraja","GRA-doos","weather","beginner","Минус 5 градусов.","Minus 5 daraja."),
+            ("Солнце","Quyosh","SON-tse","weather","beginner","Светит солнце.","Quyosh charaqlab turibdi."),
+            ("Облако","Bulut","OB-la-ka","weather","beginner","Белые облака.","Oq bulutlar."),
+            ("Дождь","Yomg'ir","dozh'd'","weather","beginner","Идёт дождь.","Yomg'ir yog'moqda."),
+            ("Снег","Qor","snyeg","weather","beginner","Падает снег.","Qor yog'moqda."),
+            ("Ветер","Shamol","VYE-tyer","weather","beginner","Сильный ветер.","Kuchli shamol."),
+            ("Гроза","Momaqaldiroq","gra-ZA","weather","intermediate","Страшная гроза.","Qo'rqinchli momaqaldiroq."),
+            ("Молния","Chaqmoq","MOL-nee-ya","weather","intermediate","Сверкнула молния.","Chaqmoq chaqdi."),
+            ("Туман","Tuman","too-MAN","weather","intermediate","Густой туман.","Qalin tuman."),
+            ("Мороз","Ayoz","ma-ROS","weather","intermediate","Сильный мороз.","Kuchli ayoz."),
+            ("Жара","Issiqlik","zhа-RA","weather","beginner","Летняя жара.","Yozgi issiq."),
+            ("Холод","Sovuq","KHO-lat","weather","beginner","Сильный холод.","Kuchli sovuq."),
+            ("Весна","Bahor","vyes-NA","weather","beginner","Пришла весна.","Bahor keldi."),
+            ("Лето","Yoz","LYE-ta","weather","beginner","Жаркое лето.","Issiq yoz."),
+            ("Осень","Kuz","O-syen'","weather","beginner","Красивая осень.","Chiroyli kuz."),
+            ("Зима","Qish","zee-MA","weather","beginner","Холодная зима.","Sovuq qish."),
+            ("Радуга","Kamalak","RA-doo-ga","weather","beginner","Красивая радуга.","Chiroyli kamalak."),
+            ("Лёд","Muz","lyot","weather","beginner","Скользкий лёд.","Sirpanchiq muz."),
+            ("Наводнение","Toshqin","na-vad-NYE-nee-ye","weather","advanced","Сильное наводнение.","Kuchli toshqin."),
+            ("Засуха","Qurg'oqchilik","ZA-soo-kha","weather","advanced","Долгая засуха.","Uzoq qurg'oqchilik."),
+            ("Прогноз погоды","Ob-havo bashorati","prag-NOS pa-GO-dy","weather","intermediate","Прогноз погоды хороший.","Ob-havo bashorati yaxshi."),
+            ("Влажность","Namlik","VLAZH-nast'","weather","advanced","Высокая влажность.","Yuqori namlik."),
+            ("Давление","Bosim","dav-LYE-nee-ye","weather","advanced","Низкое давление.","Past bosim."),
+            ("Ясно","Ochiq (havo)","YAS-na","weather","beginner","Сегодня ясно.","Bugun havo ochiq."),
+            ("Пасмурно","Bulutli","PAS-moor-na","weather","intermediate","Пасмурная погода.","Bulutli havo."),
+            ("Ураган","To'fon","oo-ra-GAN","weather","intermediate","Сильный ураган.","Kuchli to'fon."),
+            ("Иней","Qirov","EE-nyey","weather","intermediate","Утренний иней.","Ertalabki qirov."),
+            ("Гололёд","Muzqaymoq yo'l","ga-la-LYOT","weather","intermediate","Гололёд на дороге.","Yo'lda muzqaymoq."),
+        ]
+        for row in w:
+            self.conn.execute("INSERT OR IGNORE INTO words (russian,uzbek,pronunciation,category,level,example_ru,example_uz) VALUES(?,?,?,?,?,?,?)", row)
+        self.conn.commit()
+
+    def _insert_house_words(self):
+        w = [
+            ("Дом","Uy","dom","house","beginner","Большой дом.","Katta uy."),
+            ("Квартира","Kvartira","kvar-TEE-ra","house","beginner","Наша квартира.","Bizning kvartira."),
+            ("Комната","Xona","KOM-na-ta","house","beginner","Большая комната.","Katta xona."),
+            ("Кухня","Oshxona","KOOKH-nya","house","beginner","Мама на кухне.","Onam oshxonada."),
+            ("Спальня","Yotoqxona","SPAL'-nya","house","beginner","Тихая спальня.","Jim yotoqxona."),
+            ("Гостиная","Mehmonxona","gas-TEE-na-ya","house","beginner","Сидим в гостиной.","Mehmonxonada o'tiramiz."),
+            ("Ванная","Hammom","VAN-na-ya","house","beginner","Ванная свободна.","Hammom bo'sh."),
+            ("Туалет","Hojatxona","too-a-LYET","house","beginner","Где туалет?","Hojatxona qayerda?"),
+            ("Балкон","Balkon","bal-KON","house","beginner","Выйди на балкон.","Balkonga chiq."),
+            ("Окно","Deraza","ak-NO","house","beginner","Открой окно.","Derazani och."),
+            ("Дверь","Eshik","dvyer'","house","beginner","Закрой дверь.","Eshikni yop."),
+            ("Потолок","Shift","pa-ta-LOK","house","beginner","Белый потолок.","Oq shift."),
+            ("Пол","Pol","pol","house","beginner","Чистый пол.","Toza pol."),
+            ("Стена","Devor","stye-NA","house","beginner","Белые стены.","Oq devorlar."),
+            ("Стол","Stol","stol","house","beginner","Накрой стол.","Stolni to'shla."),
+            ("Стул","Stul","stool","house","beginner","Сядь на стул.","Stulga o'tir."),
+            ("Диван","Divan","dee-VAN","house","beginner","Мягкий диван.","Yumshoq divan."),
+            ("Кровать","Karavot","kra-VAT'","house","beginner","Убери кровать.","Karavotni yig'."),
+            ("Шкаф","Shkaf","shkaf","house","beginner","Одежда в шкафу.","Kiyimlar shkafda."),
+            ("Холодильник","Muzlatgich","kha-la-DEEL'-neek","house","beginner","Еда в холодильнике.","Ovqat muzlatgichda."),
+            ("Плита","Pech (gaz)","plee-TA","house","beginner","Готовить на плите.","Pechda pishirish."),
+            ("Микроволновка","Mikroto'lqinli pech","meek-ra-val-NOF-ka","house","intermediate","Разогрей в микроволновке.","Mikroto'lqinda isit."),
+            ("Телевизор","Televizor","tye-lye-VEE-zar","house","beginner","Смотрю телевизор.","Televizor ko'raman."),
+            ("Лампа","Chiroq/lampa","LAM-pa","house","beginner","Включи лампу.","Lampani yoq."),
+            ("Зеркало","Ko'zgu","ZYER-ka-la","house","beginner","Смотрюсь в зеркало.","Ko'zguga qaraman."),
+            ("Полка","Tokcha","POL-ka","house","beginner","Книги на полке.","Kitoblar tokchada."),
+            ("Ковёр","Gilam","ka-VYOR","house","beginner","Мягкий ковёр.","Yumshoq gilam."),
+            ("Занавеска","Parda","za-na-VYES-ka","house","beginner","Закрой занавески.","Pardani yop."),
+            ("Подушка","Yostiq","pa-DOOSH-ka","house","beginner","Мягкая подушка.","Yumshoq yostiq."),
+            ("Одеяло","Ko'rpa","a-dye-YA-la","house","beginner","Тёплое одеяло.","Iliq ko'rpa."),
+        ]
+        for row in w:
+            self.conn.execute("INSERT OR IGNORE INTO words (russian,uzbek,pronunciation,category,level,example_ru,example_uz) VALUES(?,?,?,?,?,?,?)", row)
+        self.conn.commit()
+
+    def _insert_sport_words(self):
+        w = [
+            ("Спорт","Sport","sport","sport","beginner","Спорт полезен.","Sport foydali."),
+            ("Футбол","Futbol","foot-BOL","sport","beginner","Играть в футбол.","Futbol o'ynash."),
+            ("Баскетбол","Basketbol","bas-kyet-BOL","sport","beginner","Матч по баскетболу.","Basketbol matchi."),
+            ("Волейбол","Voleybol","va-lyey-BOL","sport","beginner","Играем в волейбол.","Voleybol o'ynamiz."),
+            ("Теннис","Tennis","TYE-nees","sport","beginner","Играть в теннис.","Tennis o'ynash."),
+            ("Плавание","Suzish","PLA-va-nee-ye","sport","beginner","Плавание полезно.","Suzish foydali."),
+            ("Бег","Yugurish","byek","sport","beginner","Утренний бег.","Ertalabki yugurish."),
+            ("Ходьба","Yurish","khad'-BA","sport","beginner","Ходьба полезна.","Yurish foydali."),
+            ("Прыжки","Sakrash","PRYZh-kee","sport","beginner","Прыжки в высоту.","Balandlikka sakrash."),
+            ("Гимнастика","Gimnastika","geem-NAS-tee-ka","sport","beginner","Утренняя гимнастика.","Ertalabki gimnastika."),
+            ("Бокс","Boks","boks","sport","beginner","Заниматься боксом.","Boks bilan shug'ullanish."),
+            ("Борьба","Kurash","bar'-BA","sport","beginner","Национальная борьба.","Milliy kurash."),
+            ("Шахматы","Shaxmat","SHAKH-ma-ty","sport","beginner","Играть в шахматы.","Shaxmat o'ynash."),
+            ("Велоспорт","Velosport","vye-la-SPORT","sport","intermediate","Велоспорт популярен.","Velosport mashhur."),
+            ("Каратэ","Karate","ka-ra-TE","sport","beginner","Урок каратэ.","Karate darsi."),
+            ("Тренировка","Mashq/trenirovka","trye-nee-ROF-ka","sport","beginner","Ежедневная тренировка.","Har kunlik mashq."),
+            ("Стадион","Stadion","sta-dee-ON","sport","beginner","На стадионе матч.","Stadionda match."),
+            ("Команда","Jamoa","ka-MAN-da","sport","beginner","Наша команда.","Bizning jamoamiz."),
+            ("Игрок","O'yinchi","eeg-ROK","sport","beginner","Лучший игрок.","Eng yaxshi o'yinchi."),
+            ("Тренер","Murabbiy","TRE-nyer","sport","beginner","Строгий тренер.","Qattiq murabbiy."),
+            ("Победа","G'alaba","pa-BYE-da","sport","beginner","Победа близко.","G'alaba yaqin."),
+            ("Поражение","Mag'lubiyat","pa-ra-ZHE-nee-ye","sport","intermediate","Горькое поражение.","Achchiq mag'lubiyat."),
+            ("Чемпион","Chempion","chyem-pee-ON","sport","beginner","Новый чемпион.","Yangi chempion."),
+            ("Рекорд","Rekord","rye-KORD","sport","beginner","Побить рекорд.","Rekord urish."),
+            ("Мяч","To'p","myach","sport","beginner","Пнуть мяч.","To'pni tepish."),
+            ("Гол","Gol","gol","sport","beginner","Забить гол.","Gol urish."),
+            ("Счёт","Hisob","schyot","sport","beginner","Счёт 2:1.","Hisob 2:1."),
+            ("Финал","Final","fee-NAL","sport","beginner","В финале.","Finalda."),
+            ("Медаль","Medal","mye-DAL'","sport","beginner","Золотая медаль.","Oltin medal."),
+            ("Болельщик","Fanat/tarafdor","ba-LYEL'-shcheek","sport","intermediate","Верный болельщик.","Sodiq tarafdor."),
+        ]
+        for row in w:
+            self.conn.execute("INSERT OR IGNORE INTO words (russian,uzbek,pronunciation,category,level,example_ru,example_uz) VALUES(?,?,?,?,?,?,?)", row)
         self.conn.commit()
 
     def _insert_introduction_grammar(self):

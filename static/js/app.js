@@ -386,7 +386,17 @@ async function loadWordCategories(){
   const sel = $("wordCatFilter");
   if(!sel||!cats) return;
   const cur = sel.value;
-  const catNames = {general:"Umumiy",greeting:"Salomlashish",numbers:"Raqamlar",colors:"Ranglar",family:"Oila",food:"Oziq-ovqat",verbs:"Fe'llar",adjectives:"Sifatlar",travel:"Sayohat",work:"Ish",health:"Sog'liq",nature:"Tabiat",time:"Vaqt",emotions:"His-tuyg'ular",shopping:"Xarid",introduction:"🤝 Tanishish",navigation:"🗺️ Yo'l"};
+  const catNames = {
+    general:"Umumiy", greeting:"Salomlashish", numbers:"Raqamlar",
+    colors:"Ranglar", family:"Oila asoslari", food:"Oziq-ovqat",
+    verbs:"Fe'llar", adjectives:"Sifatlar", travel:"Sayohat",
+    work:"Ish", health:"Sog'liq", nature:"Tabiat", time:"Vaqt (asos)",
+    emotions:"His-tuyg'ular", shopping:"Xarid", introduction:"🤝 Tanishish",
+    navigation:"🗺️ Yo'l", time_ext:"⏰ Vaqt to'liq", places:"🏛️ Joylar",
+    math:"🔢 Matematika", family_ext:"👨‍👩‍👧‍👦 Oila to'liq", clothing:"👗 Kiyim",
+    animals:"🐾 Hayvonlar", transport:"🚗 Transport", body:"🫀 Tana",
+    school:"🏫 Maktab", weather:"🌤️ Ob-havo", house:"🏠 Uy-joy", sport:"⚽ Sport",
+  };
   const opts = cats.map(c=>`<option value="${c}"${c===cur?" selected":""}>${catNames[c]||c}</option>`).join("");
   sel.innerHTML=`<option value="">Barcha kategoriyalar</option>${opts}`;
 }
@@ -647,8 +657,20 @@ async function renderGrammarSteps(){
     {key:"adjectives",label:"Sifatlar",icon:"🎨"},
     {key:"verbs",label:"Fe'llar",icon:"⚡"},
     {key:"cases",label:"Kelshiklar",icon:"📐"},
-    {key:"introduction",label:"Tanishish",icon:"🤝"},
-    {key:"navigation",label:"Yo'l",icon:"🗺️"},
+    {key:"introduction", label:"Tanishish",  icon:"🤝"},
+    {key:"navigation",   label:"Yo'l",        icon:"🗺️"},
+    {key:"time_ext",     label:"Vaqt",        icon:"⏰"},
+    {key:"places",       label:"Joylar",      icon:"🏛️"},
+    {key:"math",         label:"Matematika",  icon:"🔢"},
+    {key:"family_ext",   label:"Oila",        icon:"👨‍👩‍👧‍👦"},
+    {key:"clothing",     label:"Kiyim",       icon:"👗"},
+    {key:"animals",      label:"Hayvonlar",   icon:"🐾"},
+    {key:"transport",    label:"Transport",   icon:"🚗"},
+    {key:"body",         label:"Tana",        icon:"🫀"},
+    {key:"school",       label:"Maktab",      icon:"🏫"},
+    {key:"weather",      label:"Ob-havo",     icon:"🌤️"},
+    {key:"house",        label:"Uy-joy",      icon:"🏠"},
+    {key:"sport",        label:"Sport",       icon:"⚽"},
   ];
   track.innerHTML=steps.map((s,i)=>{
     const count=all.filter(r=>r.category===s.key).length;
@@ -1621,6 +1643,18 @@ const CAT_META = {
   emotions:   { icon:"😊", label:"His-tuyg'ular",  desc:"Kayfiyat va his" },
   introduction: { icon:"🤝", label:"Tanishish",     desc:"O'zini tanishtirish" },
   navigation:   { icon:"🗺️", label:"Yo'l/Sayohat",   desc:"Yo'l so'rash, transport" },
+  time_ext:     { icon:"⏰", label:"Vaqt",            desc:"Kunlar, oylar, fasllar" },
+  places:       { icon:"🏛️", label:"Joylar",          desc:"Bino va manzillar" },
+  math:         { icon:"🔢", label:"Matematika",      desc:"Amallar va shakllar" },
+  family_ext:   { icon:"👨‍👩‍👧‍👦", label:"Oila",           desc:"Qarindoshlar" },
+  clothing:     { icon:"👗", label:"Kiyim-kechak",    desc:"Kiyimlar va aksessuarlar" },
+  animals:      { icon:"🐾", label:"Hayvonlar",       desc:"Uy va yovvoyi hayvonlar" },
+  transport:    { icon:"🚗", label:"Transport",       desc:"Harakatlanish vositalari" },
+  body:         { icon:"🫀", label:"Inson tanasi",    desc:"A'zolar va organlar" },
+  school:       { icon:"🏫", label:"Maktab",          desc:"Ta'lim va dars buyumlari" },
+  weather:      { icon:"🌤️", label:"Ob-havo",         desc:"Iqlim va fasllar" },
+  house:        { icon:"🏠", label:"Uy-joy",          desc:"Xonalar va mebel" },
+  sport:        { icon:"⚽", label:"Sport",           desc:"O'yinlar va mashqlar" },
 };
 
 async function loadCategoryPanel(){
