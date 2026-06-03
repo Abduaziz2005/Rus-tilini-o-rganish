@@ -56,7 +56,11 @@
     <button class="nav-item" data-page="progress">
       <span class="nav-icon">📊</span><span>Yutuqlar</span></button>
 
-    <div class="nav-group-label">SOZLAMALAR</div>
+    <div class="nav-group-label">MASHQ</div>
+    <button class="nav-item" data-page="adaptive">
+      <span class="nav-icon">🧠</span><span>Adaptiv Test</span></button>
+    <button class="nav-item" data-page="roleplay">
+      <span class="nav-icon">🎭</span><span>Dialog Mashqi</span></button>
     <button class="nav-item" data-page="settings">
       <span class="nav-icon">⚙</span><span>Sozlamalar</span></button>
   </nav>
@@ -788,30 +792,190 @@
 
 <!-- ── PROGRESS PAGE ── -->
 <section class="page" id="page-progress">
-  <div class="page-header"><h1>📊 Yutuqlar & Statistika</h1></div>
-
-  <!-- Level indicator -->
-  <div id="levelCard" class="level-card"></div>
-
-  <!-- Stats grid -->
-  <div class="stats-grid-full" id="fullStatsGrid"></div>
-
-  <!-- Study chart -->
-  <div class="chart-card">
-    <h3>📈 So'nggi 7 kunlik faollik</h3>
-    <canvas id="studyChart" height="120"></canvas>
+  <div class="page-header">
+    <h1>📊 Yutuqlar & Statistika</h1>
+    <div class="header-actions">
+      <button class="btn btn-ghost btn-sm" onclick="loadProgress()">🔄</button>
+      <button class="btn btn-primary btn-sm" onclick="openGoalsModal()">🎯 Maqsadlar</button>
+    </div>
   </div>
 
-  <!-- Mastery breakdown -->
+  <!-- ── STREAK VA BUGUNGI MAQSAD ── -->
+  <div class="progress-top-row">
+
+    <!-- Streak kartochka -->
+    <div class="streak-card" id="streakCard">
+      <div class="streak-fire" id="streakFire">🔥</div>
+      <div class="streak-count" id="streakCount">0</div>
+      <div class="streak-label">kun streak</div>
+      <div class="streak-days" id="streakDays"></div>
+    </div>
+
+    <!-- Bugungi maqsadlar -->
+    <div class="goals-card" id="goalsCard">
+      <div class="goals-title">🎯 Bugungi maqsad</div>
+      <div class="goals-list" id="goalsList"></div>
+      <div class="goals-msg" id="goalsMsg"></div>
+    </div>
+
+    <!-- Level card -->
+    <div id="levelCard" class="level-card"></div>
+  </div>
+
+  <!-- ── HAFTALIK HISOBOT ── -->
+  <div class="week-card">
+    <h3>📅 Haftalik faollik</h3>
+    <div class="week-bars" id="weekBars"></div>
+    <div class="week-legend">
+      <span><b id="weekTotalXp">0</b> XP</span>
+      <span><b id="weekTotalMin">0</b> daqiqa</span>
+      <span><b id="weekTotalWords">0</b> so'z</span>
+      <span><b id="weekActiveDays">0</b>/7 faol kun</span>
+    </div>
+  </div>
+
+  <!-- ── RADAR CHART (Kuchli/kuchsiz tomonlar) ── -->
+  <div class="radar-card">
+    <h3>🕸 Bilim xaritasi</h3>
+    <p class="muted" style="font-size:12px;margin-bottom:12px">Har bir kategoriya bo'yicha to'g'ri javoblar foizi</p>
+    <div class="radar-grid" id="radarGrid"></div>
+    <div class="weak-section">
+      <div class="weak-title">⚠️ Kuchsiz tomonlar — ko'proq mashq qiling:</div>
+      <div class="weak-list" id="weakList"></div>
+    </div>
+  </div>
+
+  <!-- ── STATISTIKA GRID ── -->
+  <div class="stats-grid-full" id="fullStatsGrid"></div>
+
+  <!-- ── 7 KUNLIK GRAFIK ── -->
+  <div class="chart-card">
+    <h3>📈 So'nggi 7 kunlik faollik (daqiqa)</h3>
+    <canvas id="studyChart" height="100"></canvas>
+  </div>
+
+  <!-- ── SO'Z O'ZLASHTIRILISHI ── -->
   <div class="mastery-card">
     <h3>🎯 So'z o'zlashtirilishi</h3>
     <div id="masteryBreakdown"></div>
   </div>
 
-  <!-- History table -->
+  <!-- ── O'QISH TARIXI ── -->
   <div class="history-card">
     <h3>🕐 O'qish tarixi</h3>
     <div id="historyTable"></div>
+  </div>
+</section>
+
+<!-- ── ADAPTIVE QUIZ PAGE (yangi) ── -->
+<section class="page" id="page-adaptive">
+  <div class="page-header">
+    <h1>🧠 Adaptiv Test</h1>
+    <div class="header-actions">
+      <span class="muted" style="font-size:12px">Kuchsiz joylarga qarab savol tuziladi</span>
+    </div>
+  </div>
+
+  <!-- Rejim tanlash -->
+  <div id="adaptiveSetup" class="quiz-setup">
+    <div class="adaptive-info" id="adaptiveInfo">
+      <div class="ai-icon">🤖</div>
+      <div>Sizning statistikangizga qarab <b>eng kerakli</b> so'zlar va grammatika tanlanadi.</div>
+    </div>
+    <div class="quiz-option-card">
+      <h3>🎯 Test turi</h3>
+      <div class="quiz-options">
+        <label class="quiz-opt"><input type="radio" name="adaptType" value="words" checked> 📖 So'zlar</label>
+        <label class="quiz-opt"><input type="radio" name="adaptType" value="cloze"> ✏️ Bo'shliq to'ldirish</label>
+        <label class="quiz-opt"><input type="radio" name="adaptType" value="mixed"> 🎲 Aralash</label>
+      </div>
+    </div>
+    <div class="quiz-option-card">
+      <h3>🔢 Savollar soni</h3>
+      <div class="quiz-options">
+        <label class="quiz-opt"><input type="radio" name="adaptCount" value="5"> 5 ta</label>
+        <label class="quiz-opt"><input type="radio" name="adaptCount" value="10" checked> 10 ta</label>
+        <label class="quiz-opt"><input type="radio" name="adaptCount" value="15"> 15 ta</label>
+      </div>
+    </div>
+    <!-- Kuchsiz kategoriyalar -->
+    <div class="weak-focus-panel" id="weakFocusPanel"></div>
+    <button class="btn btn-primary btn-lg" onclick="startAdaptiveTest()" id="startAdaptBtn">🧠 Adaptiv testni boshlash</button>
+  </div>
+
+  <!-- Test jarayoni -->
+  <div id="adaptivePlay" style="display:none">
+    <div class="quiz-progress">
+      <div class="qp-bar"><div class="qp-fill" id="adaptProgFill"></div></div>
+      <span id="adaptProgLabel">1/10</span>
+      <span id="adaptScoreLabel" class="score-badge">0</span>
+    </div>
+    <!-- Savol turi badge -->
+    <div id="adaptQuestionType" class="adapt-type-badge"></div>
+    <div class="quiz-card" id="adaptCard">
+      <div class="quiz-question" id="adaptQuestion"></div>
+      <!-- Cloze uchun -->
+      <div id="adaptClozeContext" style="display:none" class="cloze-context"></div>
+      <div class="quiz-choices" id="adaptChoices"></div>
+    </div>
+    <div id="adaptFeedback" class="quiz-feedback" style="display:none"></div>
+  </div>
+
+  <!-- Natija -->
+  <div id="adaptiveResult" style="display:none" class="quiz-result">
+    <div class="result-emoji" id="adaptResultEmoji">🎉</div>
+    <h2>Test tugadi!</h2>
+    <div class="result-score" id="adaptResultScore"></div>
+    <div id="adaptResultDetails"></div>
+    <div id="adaptResultAdvice" class="adapt-advice"></div>
+    <button class="btn btn-primary" onclick="startAdaptiveTest()">🔄 Yana sinash</button>
+    <button class="btn btn-ghost"   onclick="navigate('progress')">📊 Statistika</button>
+  </div>
+</section>
+
+<!-- ── ROLEPLAY PAGE (yangi) ── -->
+<section class="page" id="page-roleplay">
+  <div class="page-header">
+    <h1>🎭 Dialog Mashqi</h1>
+    <div class="header-actions">
+      <button class="btn btn-ghost btn-sm" id="rpEndBtn" style="display:none" onclick="endRoleplay()">⏹ Tugatish</button>
+    </div>
+  </div>
+
+  <!-- Ssenariy tanlash -->
+  <div id="rpScenarios">
+    <p style="color:var(--text2);margin-bottom:16px">Haqiqiy hayot vaziyatlarida rus tilida gaplashib ko'ring!</p>
+    <div class="rp-grid" id="rpGrid"></div>
+  </div>
+  <!-- loadRoleplayPage va startRoleplay chaqiruvlar JS dan avtomatik --> 
+
+  <!-- Suhbat oynasi -->
+  <div id="rpChat" style="display:none">
+    <div class="rp-header" id="rpHeader"></div>
+    <div class="chat-messages" id="rpMessages" style="max-height:380px"></div>
+    <div class="chat-input-area">
+      <div class="chat-input-wrap">
+        <button class="chat-tool-btn" id="rpMicBtn" onclick="toggleRpMic()" title="Mikrofon">🎤</button>
+        <input type="text" id="rpInput" class="chat-input"
+               placeholder="Javobingizni yozing... (Enter)"
+               onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendRoleplay();}">
+        <button class="chat-send-btn" onclick="sendRoleplay()">➤</button>
+      </div>
+      <div class="rp-hints">
+        <span class="rp-hint-label">💡 Foydali iboralar:</span>
+        <span id="rpHints" class="rp-hint-chips"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Natija -->
+  <div id="rpResult" style="display:none" class="quiz-result">
+    <div class="result-emoji">🎭</div>
+    <h2>Dialog tugadi!</h2>
+    <div class="result-score" id="rpScore"></div>
+    <div id="rpFeedback"></div>
+    <button class="btn btn-primary" onclick="showRpScenarios()">🔄 Yana o'ynash</button>
+    <button class="btn btn-ghost"   onclick="navigate('progress')">📊 Statistika</button>
   </div>
 </section>
 
@@ -836,9 +1000,7 @@
         </select>
       </div>
       <button class="btn btn-primary btn-sm" onclick="saveProfile()">💾 Saqlash</button>
-    </div>
-
-    <!-- Notifications -->
+      <button class="btn btn-ghost btn-sm" style="margin-top:8px" onclick="openModal('memoryModal');loadMemoryForm()">🧠 AI Xotirasi</button>
     <div class="settings-card">
       <h3>🔔 Xabarnomalar</h3>
       <div class="form-row">
@@ -911,6 +1073,56 @@
 </div><!-- /app -->
 
 <!-- ════════════════ MODALS ════════════════ -->
+
+<!-- Maqsad modal -->
+<div id="goalsModal" class="modal" style="display:none">
+  <div class="modal-overlay" onclick="closeModal('goalsModal')"></div>
+  <div class="modal-content" style="max-width:480px">
+    <button class="modal-close" onclick="closeModal('goalsModal')">✕</button>
+    <h2>🎯 Kunlik Maqsadlar</h2>
+    <p style="color:var(--text2);font-size:13px;margin-bottom:16px">Har kuni bajarishni xohlagan miqdorni belgilang.</p>
+    <div class="form-row">
+      <label>📖 So'zlar soni</label>
+      <input type="number" id="goalWords" class="form-input" min="1" max="100" value="10" placeholder="10">
+    </div>
+    <div class="form-row">
+      <label>⏱ O'qish daqiqasi</label>
+      <input type="number" id="goalMinutes" class="form-input" min="5" max="180" value="30" placeholder="30">
+    </div>
+    <div class="form-row">
+      <label>⭐ XP maqsad</label>
+      <input type="number" id="goalXp" class="form-input" min="10" max="500" value="50" placeholder="50">
+    </div>
+    <button class="btn btn-primary" style="width:100%;margin-top:8px" onclick="saveGoals()">💾 Saqlash</button>
+  </div>
+</div>
+
+<!-- Profil xotirasi modal -->
+<div id="memoryModal" class="modal" style="display:none">
+  <div class="modal-overlay" onclick="closeModal('memoryModal')"></div>
+  <div class="modal-content" style="max-width:520px">
+    <button class="modal-close" onclick="closeModal('memoryModal')">✕</button>
+    <h2>🧠 AI Profil Xotirasi</h2>
+    <p style="color:var(--text2);font-size:13px;margin-bottom:16px">AI sizning bu ma'lumotlaringizni eslab qoladi va suhbatda ishlatadi.</p>
+    <div class="memory-form-grid">
+      <div class="form-row"><label>👤 Ismingiz</label>
+        <input type="text" id="memName" class="form-input" placeholder="Alisher"></div>
+      <div class="form-row"><label>🎂 Yoshingiz</label>
+        <input type="text" id="memAge" class="form-input" placeholder="22"></div>
+      <div class="form-row"><label>🏙️ Shahringiz</label>
+        <input type="text" id="memCity" class="form-input" placeholder="Toshkent"></div>
+      <div class="form-row"><label>💼 Kasbingiz</label>
+        <input type="text" id="memJob" class="form-input" placeholder="Talaba / Dasturchi..."></div>
+      <div class="form-row"><label>🎯 Qiziqishlaringiz</label>
+        <input type="text" id="memHobbies" class="form-input" placeholder="Musiqa, sport, kitob..."></div>
+      <div class="form-row"><label>🏆 Rus tilini o'rganish maqsadi</label>
+        <input type="text" id="memGoal" class="form-input" placeholder="Ish topish, sayohat, do'stlar..."></div>
+      <div class="form-row" style="grid-column:1/-1"><label>📝 Qo'shimcha eslatma</label>
+        <textarea id="memNotes" class="form-input" rows="2" placeholder="Masalan: grammatika qiyin, raqamlar yaxshi..."></textarea></div>
+    </div>
+    <button class="btn btn-primary" style="width:100%;margin-top:8px" onclick="saveMemory()">💾 Saqlash</button>
+  </div>
+</div>
 
 <!-- Add Word Modal -->
 <div id="addWordModal" class="modal" style="display:none">

@@ -106,16 +106,18 @@ function navigate(page){
   window.scrollTo(0,0);
   // Sahifaga mos ma'lumot yuklash
   const loaders = {
-    home: loadHome,
+    home:       loadHome,
     vocabulary: loadVocabulary,
     flashcards: ()=>{},
-    grammar: loadGrammar,
-    games: loadGameHighscores,
-    quiz: ()=>{},
-    chat: ()=>{ loadChatHistory(); _updateOfflineBadge(); },
-    schedule: loadSchedule,
-    progress: loadProgress,
-    settings: loadSettings,
+    grammar:    loadGrammar,
+    games:      loadGameHighscores,
+    quiz:       ()=>{},
+    chat:       ()=>{ loadChatHistory(); _updateOfflineBadge(); },
+    schedule:   loadSchedule,
+    progress:   loadProgress,
+    settings:   loadSettings,
+    adaptive:   loadAdaptivePage,
+    roleplay:   loadRoleplayPage,
   };
   if(loaders[page]) loaders[page]();
 }
@@ -1810,99 +1812,597 @@ async function deleteLesson(id){
 // PROGRESS PAGE
 // ══════════════════════════════════════════════════
 async function loadProgress(){
-  const stats=await api("/api/stats");
-  const history=await api("/api/history?limit=30");
+  const [stats, history, weekReport, goalsReport, adaptStats] = await Promise.all([
+    api("/api/stats"),
+    api("/api/history?limit=20"),
+    api("/api/weekly-report"),
+    api("/api/goals/report"),
+    api("/api/adaptive/stats"),
+  ]);
   if(stats.error) return;
 
-  // Level card
+  // ── 1. STREAK KARTOCHKA ───────────────────────
+  const streak    = weekReport?.streak  || 0;
+  const streakEl  = $("streakCard");
+  if(streakEl){
+    $("streakCount").textContent = streak;
+    $("streakFire").textContent  = streak>=7?"🔥🔥":streak>=3?"🔥":"❄️";
+    // Oxirgi 7 kun kataklari
+    const days = weekReport?.days || [];
+    $("streakDays").innerHTML = days.map(d=>`
+      <div class="streak-day ${d.xp>0?'active':''}">
+        <div class="sd-dot"></div>
+        <div class="sd-label">${d.day}</div>
+      </div>`).join("");
+    if(streak>=7)  streakEl.classList.add("streak-gold");
+    else if(streak>=3) streakEl.classList.add("streak-fire");
+    else           streakEl.classList.remove("streak-gold","streak-fire");
+  }
+
+  // ── 2. MAQSADLAR ─────────────────────────────
+  if(goalsReport && !goalsReport.error){
+    const {goals,today,pcts,avg_pct,message} = goalsReport;
+    $("goalsList").innerHTML = [
+      {icon:"📖",label:"So'zlar",done:today.words,  goal:goals.words,  pct:pcts.words,  color:"var(--green)"},
+      {icon:"⏱", label:"Daqiqa", done:today.minutes,goal:goals.minutes,pct:pcts.minutes,color:"var(--accent)"},
+      {icon:"⭐", label:"XP",     done:today.xp,     goal:goals.xp,     pct:pcts.xp,    color:"var(--yellow)"},
+    ].map(g=>`
+      <div class="goal-row">
+        <span class="goal-icon">${g.icon}</span>
+        <div class="goal-info">
+          <div class="goal-label">${g.label}: <b>${g.done}</b>/${g.goal}</div>
+          <div class="goal-bar-wrap"><div class="goal-bar" style="width:${g.pct}%;background:${g.color}"></div></div>
+        </div>
+        <span class="goal-pct" style="color:${g.color}">${g.pct}%</span>
+      </div>`).join("");
+    $("goalsMsg").textContent  = message;
+    $("goalsMsg").className    = `goals-msg ${avg_pct>=100?"goals-done":avg_pct>=70?"goals-good":"goals-pending"}`;
+  }
+
+  // ── 3. DARAJA KARTOCHKA ───────────────────────
   const levels=[
-    {name:"Yangi boshlovchi",min:0,max:200,icon:"🌱",color:"var(--green)"},
-    {name:"Boshlang'ich",min:200,max:500,icon:"📗",color:"var(--green)"},
-    {name:"O'rta daraja",min:500,max:1000,icon:"📘",color:"var(--accent)"},
-    {name:"O'rta-yuqori",min:1000,max:2000,icon:"📙",color:"var(--yellow)"},
-    {name:"Ilg'or",min:2000,max:4000,icon:"📕",color:"var(--orange)"},
-    {name:"Ustoz",min:4000,max:9999,icon:"🏆",color:"var(--purple)"},
+    {name:"Yangi boshlovchi",min:0,   max:200,  icon:"🌱",color:"var(--green)"},
+    {name:"Boshlang'ich",     min:200, max:500,  icon:"📗",color:"var(--green)"},
+    {name:"O'rta daraja",    min:500, max:1000, icon:"📘",color:"var(--accent)"},
+    {name:"O'rta-yuqori",    min:1000,max:2000, icon:"📙",color:"var(--yellow)"},
+    {name:"Ilg'or",          min:2000,max:4000, icon:"📕",color:"var(--orange)"},
+    {name:"Ustoz",           min:4000,max:9999, icon:"🏆",color:"var(--purple)"},
   ];
-  const xp=stats.total_xp||0;
-  const lvl=levels.find(l=>xp>=l.min&&xp<l.max)||levels[levels.length-1];
-  const pct=Math.min(100,Math.round((xp-lvl.min)/(lvl.max-lvl.min)*100));
+  const xp   = stats.total_xp||0;
+  const lvl  = levels.find(l=>xp>=l.min&&xp<l.max)||levels[levels.length-1];
+  const lvlPct = Math.min(100,Math.round((xp-lvl.min)/(lvl.max-lvl.min)*100));
   $("levelCard").innerHTML=`
     <div class="lc-icon">${lvl.icon}</div>
     <div class="lc-info">
       <div class="lc-name" style="color:${lvl.color}">${lvl.name}</div>
-      <div class="lc-xp">${xp} XP · Keyingi daraja: ${lvl.max} XP</div>
-      <div class="xp-bar-wrap"><div class="xp-bar" style="width:${pct}%;background:${lvl.color}"></div></div>
+      <div class="lc-xp">${xp} XP · Keyingi: ${lvl.max} XP</div>
+      <div class="xp-bar-wrap"><div class="xp-bar" style="width:${lvlPct}%;background:${lvl.color}"></div></div>
     </div>
     <div style="text-align:right">
-      <div style="font-size:28px;font-weight:700;color:${lvl.color}">${pct}%</div>
-      <div style="font-size:11px;color:var(--text3)">joriy daraja</div>
+      <div style="font-size:26px;font-weight:800;color:${lvl.color}">${lvlPct}%</div>
+      <div class="muted" style="font-size:11px">joriy daraja</div>
     </div>`;
 
-  // Stats grid
+  // ── 4. HAFTALIK HISOBOT ───────────────────────
+  if(weekReport && weekReport.days){
+    const maxXp = Math.max(1,...weekReport.days.map(d=>d.xp));
+    $("weekBars").innerHTML = weekReport.days.map(d=>{
+      const h = Math.max(4, Math.round(d.xp/maxXp*80));
+      const active = d.xp > 0;
+      return `
+        <div class="week-bar-col">
+          <div class="week-bar-tooltip">${d.xp} XP · ${d.words} so'z · ${d.minutes} min</div>
+          <div class="week-bar-fill ${active?'active':''}" style="height:${h}px"></div>
+          <div class="week-bar-label">${d.day}</div>
+        </div>`;
+    }).join("");
+    $("weekTotalXp").textContent    = weekReport.total_xp    || 0;
+    $("weekTotalMin").textContent   = weekReport.total_min   || 0;
+    $("weekTotalWords").textContent = weekReport.total_words || 0;
+    $("weekActiveDays").textContent = weekReport.active_days || 0;
+  }
+
+  // ── 5. RADAR GRID (bilim xaritasi) ───────────
+  const catLabels = {
+    greeting:"👋 Salomlashish",numbers:"🔢 Raqamlar",colors:"🎨 Ranglar",
+    family:"👨‍👩‍👧 Oila",food:"🍎 Ovqat",verbs:"⚡ Fe'llar",adjectives:"🌟 Sifatlar",
+    travel:"✈️ Sayohat",work:"💼 Ish",health:"🏥 Sog'liq",nature:"🌿 Tabiat",
+    time_ext:"⏰ Vaqt",emotions:"😊 His",navigation:"🗺️ Yo'l",
+    introduction:"🤝 Tanishish",transport:"🚗 Transport",animals:"🐾 Hayvon",
+    clothing:"👗 Kiyim",school:"🏫 Maktab",sport:"⚽ Sport",math:"🔢 Math",
+    body:"🫀 Tana",house:"🏠 Uy",weather:"🌤️ Ob-havo",places:"🏛️ Joylar",
+  };
+  const radar = adaptStats?.all || [];
+  const radarEl = $("radarGrid");
+  if(radarEl && radar.length){
+    radarEl.innerHTML = radar.map(r=>{
+      const pct  = r.total>0 ? Math.min(100,Math.round(r.correct/r.total*100)) : 0;
+      const bar_color = pct>=70?"var(--green)":pct>=40?"var(--yellow)":"var(--red)";
+      return `
+        <div class="radar-item">
+          <div class="radar-label">${catLabels[r.category]||r.category}</div>
+          <div class="radar-bar-wrap">
+            <div class="radar-bar" style="width:${pct}%;background:${bar_color}"></div>
+          </div>
+          <div class="radar-pct" style="color:${bar_color}">${pct}%</div>
+        </div>`;
+    }).join("");
+  } else if(radarEl){
+    radarEl.innerHTML=`<div class="empty-state"><p>Hali test ishlamadingiz. <b>Adaptiv Test</b> ni sinab ko'ring!</p></div>`;
+  }
+
+  // Kuchsiz tomonlar
+  const weakList = $("weakList");
+  const weakest  = adaptStats?.weakest || [];
+  if(weakList){
+    weakList.innerHTML = weakest.length
+      ? weakest.map(w=>`
+          <div class="weak-item">
+            <span class="weak-cat">${catLabels[w.category]||w.category}</span>
+            <span class="weak-stat">${w.correct}✅ / ${w.wrong}❌</span>
+            <button class="btn btn-sm btn-primary" onclick="navigate('adaptive')">Mashq</button>
+          </div>`).join("")
+      : `<div class="muted">Hali yetarli statistika yo'q.</div>`;
+  }
+
+  // ── 6. STATISTIKA GRID ────────────────────────
   $("fullStatsGrid").innerHTML=`
     <div class="stat-card"><div class="stat-val">${stats.total_words||0}</div><div class="stat-lbl">📖 Jami so'zlar</div></div>
     <div class="stat-card"><div class="stat-val" style="color:var(--green)">${stats.learned_words||0}</div><div class="stat-lbl">✅ O'rganilgan</div></div>
     <div class="stat-card"><div class="stat-val" style="color:var(--yellow)">${stats.due_reviews||0}</div><div class="stat-lbl">🔁 Takrorlash</div></div>
-    <div class="stat-card"><div class="stat-val" style="color:var(--purple)">${stats.streak_days||0}</div><div class="stat-lbl">🔥 Streak</div></div>
-    <div class="stat-card"><div class="stat-val" style="color:var(--orange)">${stats.total_xp||0}</div><div class="stat-lbl">⭐ Jami XP</div></div>
+    <div class="stat-card"><div class="stat-val" style="color:var(--purple)">${weekReport?.streak||0}</div><div class="stat-lbl">🔥 Streak</div></div>
+    <div class="stat-card"><div class="stat-val" style="color:var(--orange)">${xp}</div><div class="stat-lbl">⭐ Jami XP</div></div>
     <div class="stat-card"><div class="stat-val" style="color:var(--accent)">${stats.total_sessions||0}</div><div class="stat-lbl">📚 Sessiyalar</div></div>
     <div class="stat-card"><div class="stat-val" style="color:var(--green)">${stats.grammar_rules||0}</div><div class="stat-lbl">📝 Grammatika</div></div>
     <div class="stat-card"><div class="stat-val" style="color:var(--red)">${stats.missed_lessons||0}</div><div class="stat-lbl">⚠ O'tkazilgan</div></div>`;
 
-  // Chart — so'nggi 7 kun
-  const days=[];const labels=[];
-  for(let i=6;i>=0;i--){
-    const d=new Date(); d.setDate(d.getDate()-i);
-    labels.push(d.toLocaleDateString("uz-UZ",{weekday:"short",day:"numeric"}));
-    const dayStr=d.toISOString().slice(0,10);
-    const dayHistory=(history||[]).filter(h=>h.studied_at&&h.studied_at.startsWith(dayStr));
-    days.push(dayHistory.reduce((sum,h)=>sum+(h.duration_sec||0),0)/60);
-  }
-  const canvas=$("studyChart");
+  // ── 7. HAFTALIK GRAFIK (Chart.js) ────────────
+  const chartDays  = weekReport?.days || [];
+  const labels     = chartDays.map(d=>d.day);
+  const minuteData = chartDays.map(d=>d.minutes);
+  const canvas     = $("studyChart");
   if(State.chartInstance){ State.chartInstance.destroy(); State.chartInstance=null; }
-  if(canvas&&window.Chart){
-    State.chartInstance=new Chart(canvas,{
+  if(canvas && window.Chart){
+    State.chartInstance = new Chart(canvas,{
       type:"bar",
-      data:{labels,datasets:[{label:"Daqiqa",data:days,backgroundColor:"rgba(79,142,247,0.6)",borderColor:"#4f8ef7",borderWidth:2,borderRadius:6}]},
-      options:{responsive:true,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{color:"#9ba3b8"},grid:{color:"#2a2f40"}},x:{ticks:{color:"#9ba3b8"},grid:{display:false}}}}
+      data:{
+        labels,
+        datasets:[{
+          label:"Daqiqa", data:minuteData,
+          backgroundColor:"rgba(79,142,247,0.6)",
+          borderColor:"#4f8ef7", borderWidth:2, borderRadius:6,
+        }],
+      },
+      options:{responsive:true,plugins:{legend:{display:false}},
+        scales:{y:{beginAtZero:true,ticks:{color:"#9ba3b8"},grid:{color:"#2a2f40"}},
+                x:{ticks:{color:"#9ba3b8"},grid:{display:false}}}},
     });
   }
 
-  // Mastery breakdown
+  // ── 8. SO'Z O'ZLASHTIRILISHI ─────────────────
   const masteryData=[
-    {label:"Boshlang'ich so'zlar",key:"beginner",color:"var(--green)"},
-    {label:"O'rta so'zlar",key:"intermediate",color:"var(--yellow)"},
-    {label:"Yuqori so'zlar",key:"advanced",color:"var(--red)"},
+    {label:"🟢 Boshlang'ich so'zlar",key:"beginner",  color:"var(--green)"},
+    {label:"🟡 O'rta so'zlar",       key:"intermediate",color:"var(--yellow)"},
+    {label:"🔴 Yuqori so'zlar",      key:"advanced",   color:"var(--red)"},
   ];
-  const wStats=await Promise.all(masteryData.map(async m=>{
-    const total=await api(`/api/words?level=${m.key}&limit=1000`);
-    const learned=(total||[]).filter(w=>(w.times_correct||0)>0).length;
-    return {...m,total:(total||[]).length,learned};
+  const wStats = await Promise.all(masteryData.map(async m=>{
+    const total   = await api(`/api/words?level=${m.key}&limit=1000`);
+    const learned = (total||[]).filter(w=>(w.times_correct||0)>0).length;
+    return {...m, total:(total||[]).length, learned};
   }));
   $("masteryBreakdown").innerHTML=wStats.map(m=>{
-    const pct=m.total>0?Math.round(m.learned/m.total*100):0;
+    const p=m.total>0?Math.round(m.learned/m.total*100):0;
     return `<div class="mastery-row">
       <div class="mastery-label">${m.label}</div>
-      <div class="mastery-bar-wrap"><div class="mastery-bar" style="width:${pct}%;background:${m.color}"></div></div>
-      <div class="mastery-val">${m.learned}/${m.total} (${pct}%)</div>
+      <div class="mastery-bar-wrap"><div class="mastery-bar" style="width:${p}%;background:${m.color}"></div></div>
+      <div class="mastery-val">${m.learned}/${m.total} (${p}%)</div>
     </div>`;
   }).join("");
 
-  // History table
-  const histEl=$("historyTable");
-  if(history&&history.length){
+  // ── 9. O'QISH TARIXI ─────────────────────────
+  const histEl = $("historyTable");
+  if(history && history.length){
     histEl.innerHTML=history.slice(0,15).map(h=>`
       <div class="history-row">
         <span>${lessonTypeEmoji(h.lesson_type)}</span>
-        <span style="flex:1">${{vocabulary:"Lug'at",grammar:"Grammatika",flashcards:"Kartochkalar",quiz:"Test",chat:"AI Suhbat",game:"O'yin"}[h.lesson_type]||h.lesson_type}</span>
+        <span style="flex:1">${{vocabulary:"Lug'at",grammar:"Grammatika",
+          flashcards:"Kartochkalar",quiz:"Test",chat:"AI Suhbat",
+          game:"O'yin",adaptive:"Adaptiv",roleplay:"Roleplay"}[h.lesson_type]||h.lesson_type}</span>
         <span style="color:var(--text3)">${secToMin(h.duration_sec||0)}</span>
         <span style="color:var(--yellow)">${h.score||0}%</span>
         <span style="color:var(--purple)">+${h.xp_earned||0} XP</span>
         <span style="color:var(--text3);font-size:11px">${timeAgo(h.studied_at)}</span>
       </div>`).join("");
-  } else histEl.innerHTML=`<div class="empty-state" style="padding:20px"><p>O'qish tarixi yo'q</p></div>`;
+  } else {
+    histEl.innerHTML=`<div class="empty-state" style="padding:20px"><p>O'qish tarixi yo'q</p></div>`;
+  }
 }
 
+// ── Maqsad modal ──────────────────────────────────
+function openGoalsModal(){ openModal("goalsModal"); loadGoalsForm(); }
+
+async function loadGoalsForm(){
+  const r = await api("/api/goals");
+  if(!r||r.error) return;
+  if($("goalWords"))   $("goalWords").value   = r.goals?.words   || 10;
+  if($("goalMinutes")) $("goalMinutes").value  = r.goals?.minutes || 30;
+  if($("goalXp"))      $("goalXp").value       = r.goals?.xp     || 50;
+}
+
+async function saveGoals(){
+  const r = await api("/api/goals",{method:"POST",body:JSON.stringify({
+    words:   parseInt($("goalWords")?.value)   || 10,
+    minutes: parseInt($("goalMinutes")?.value) || 30,
+    xp:      parseInt($("goalXp")?.value)      || 50,
+  })});
+  if(r?.ok){ toast("✅ Maqsadlar saqlandi","success"); closeModal("goalsModal"); loadProgress(); }
+}
+
+// ── Xotira modal ──────────────────────────────────
+async function loadMemoryForm(){
+  const mem = await api("/api/memory");
+  if(!mem) return;
+  const map = {
+    user_name:"memName",user_age:"memAge",user_city:"memCity",
+    user_job:"memJob",user_hobbies:"memHobbies",user_goal:"memGoal",user_notes:"memNotes",
+  };
+  Object.entries(map).forEach(([k,id])=>{ const el=$(id); if(el) el.value=mem[k]||""; });
+}
+
+async function saveMemory(){
+  const map = {
+    memName:"user_name",memAge:"user_age",memCity:"user_city",
+    memJob:"user_job",memHobbies:"user_hobbies",memGoal:"user_goal",memNotes:"user_notes",
+  };
+  const data = {};
+  Object.entries(map).forEach(([id,k])=>{ const el=$(id); if(el) data[k]=el.value.trim(); });
+  await api("/api/memory",{method:"POST",body:JSON.stringify(data)});
+  // Ismni profile ga ham saqlash
+  if(data.user_name){
+    await api("/api/profile",{method:"POST",body:JSON.stringify({name:data.user_name})});
+    await loadProfile();
+  }
+  toast("✅ AI xotiraga saqlandi! Endi sizni bilaman 😊","success");
+  closeModal("memoryModal");
+}
+
+// sidebar streak badge yangilash
+async function updateStreakBadge(){
+  const r = await api("/api/streak");
+  if(!r||r.error) return;
+  const el = $("profileStreak");
+  if(el) el.textContent = `🔥${r.current}`;
+}
+
+
+// ══════════════════════════════════════════════════
+// ADAPTIV TEST
+// ══════════════════════════════════════════════════
+const AdaptState = { questions:[], index:0, score:0, xp:0, answers:[], type:"words", start:null };
+
+async function loadAdaptivePage(){
+  // Kuchsiz kategoriyalarni ko'rsatish
+  const stats = await api("/api/adaptive/stats");
+  const panel = $("weakFocusPanel");
+  if(!panel) return;
+  const weakest = stats?.weakest || [];
+  if(weakest.length){
+    const catLabels={
+      greeting:"👋 Salomlashish",numbers:"🔢 Raqamlar",colors:"🎨 Ranglar",
+      family:"👨‍👩‍👧 Oila",food:"🍎 Ovqat",verbs:"⚡ Fe'llar",adjectives:"🌟 Sifatlar",
+      travel:"✈️ Sayohat",navigation:"🗺️ Yo'l",school:"🏫 Maktab",
+      introduction:"🤝 Tanishish",sport:"⚽ Sport",math:"🔢 Math",
+      weather:"🌤️ Ob-havo",body:"🫀 Tana",clothing:"👗 Kiyim",
+    };
+    panel.innerHTML=`
+      <div class="weak-focus-title">⚠️ Bu kategoriyalar ayniqsa kuchsiz:</div>
+      <div class="weak-focus-chips">
+        ${weakest.map(w=>`<span class="weak-chip">${catLabels[w.category]||w.category} (${Math.round(w.wrong/(w.correct+w.wrong||1)*100)}% xato)</span>`).join("")}
+      </div>`;
+  } else {
+    panel.innerHTML=`<div class="muted" style="padding:8px">Test ishlashingiz bilan kuchsiz tomonlaringiz aniqlanadi.</div>`;
+  }
+}
+
+async function startAdaptiveTest(){
+  const type  = document.querySelector('input[name="adaptType"]:checked')?.value || "words";
+  const count = parseInt(document.querySelector('input[name="adaptCount"]:checked')?.value || "10");
+  AdaptState.type    = type;
+  AdaptState.index   = 0;
+  AdaptState.score   = 0;
+  AdaptState.xp      = 0;
+  AdaptState.answers = [];
+  AdaptState.start   = Date.now();
+
+  let questions = [];
+  if(type === "cloze"){
+    const clozeList = await api(`/api/cloze?limit=${count}`);
+    questions = (clozeList||[]).map(c=>({
+      type:"cloze", id:c.id, category:c.category,
+      sentence_ru:c.sentence_ru, sentence_uz:c.sentence_uz,
+      answer:c.answer,
+      choices: JSON.parse(c.options_json||"[]"),
+    }));
+  } else {
+    const words = await api(`/api/adaptive/words?limit=${count*3}`);
+    const pool  = (words||[]).sort(()=>Math.random()-0.5).slice(0,count);
+    questions   = pool.map(w=>{
+      const wrong = pool.filter(x=>x.id!==w.id)
+        .sort(()=>Math.random()-0.5).slice(0,3).map(x=>x.uzbek);
+      const choices = [...wrong, w.uzbek].sort(()=>Math.random()-0.5);
+      return { type:"word", id:w.id, category:w.category||"general",
+               question:w.russian, answer:w.uzbek, choices, pron:w.pronunciation||"" };
+    });
+    if(type==="mixed"){
+      const clozeList = await api(`/api/cloze?limit=${Math.floor(count/2)}`);
+      const clozeQ    = (clozeList||[]).map(c=>({
+        type:"cloze", id:c.id, category:c.category,
+        sentence_ru:c.sentence_ru, sentence_uz:c.sentence_uz,
+        answer:c.answer, choices:JSON.parse(c.options_json||"[]"),
+      }));
+      questions = [...questions.slice(0,Math.ceil(count/2)), ...clozeQ]
+        .sort(()=>Math.random()-0.5).slice(0,count);
+    }
+  }
+
+  if(!questions.length){ toast("Savollar topilmadi","warn"); return; }
+  AdaptState.questions = questions;
+  $("adaptiveSetup").style.display = "none";
+  $("adaptiveResult").style.display = "none";
+  $("adaptivePlay").style.display  = "block";
+  showAdaptQuestion();
+}
+
+function showAdaptQuestion(){
+  const q = AdaptState.questions[AdaptState.index];
+  if(!q){ endAdaptiveTest(); return; }
+  const total = AdaptState.questions.length;
+  $("adaptProgFill").style.width  = `${Math.round(AdaptState.index/total*100)}%`;
+  $("adaptProgLabel").textContent = `${AdaptState.index+1}/${total}`;
+  $("adaptScoreLabel").textContent= `${AdaptState.score} ball`;
+  $("adaptFeedback").style.display= "none";
+  $("adaptQuestionType").textContent = q.type==="cloze" ? "✏️ Bo'shliq to'ldirish" : "📖 So'z testi";
+  $("adaptQuestionType").className   = `adapt-type-badge ${q.type}`;
+
+  if(q.type === "cloze"){
+    $("adaptQuestion").textContent  = q.sentence_ru;
+    const ctxEl = $("adaptClozeContext");
+    ctxEl.style.display  = "block";
+    ctxEl.textContent    = `🇺🇿 ${q.sentence_uz}`;
+  } else {
+    $("adaptQuestion").textContent  = q.question;
+    $("adaptClozeContext").style.display = "none";
+    if(q.pron) $("adaptQuestion").title = `🔊 ${q.pron}`;
+  }
+
+  $("adaptChoices").innerHTML = q.choices.map((c,i)=>`
+    <button class="quiz-choice" onclick="answerAdapt(this,'${c.replace(/'/g,"\\'")}',${i})">
+      ${c}
+    </button>`).join("");
+}
+
+function answerAdapt(btn, chosen, idx){
+  const q       = AdaptState.questions[AdaptState.index];
+  const correct = chosen === q.answer;
+  document.querySelectorAll(".quiz-choice").forEach(b=>b.disabled=true);
+  btn.classList.add(correct?"correct":"wrong");
+  if(!correct)
+    document.querySelectorAll(".quiz-choice")
+      .forEach(b=>{ if(b.textContent.trim()===q.answer) b.classList.add("correct"); });
+
+  const pts = correct ? 10 : 0;
+  AdaptState.score += pts;
+  AdaptState.answers.push({...q, chosen, correct});
+
+  // Backend ga statistika yuborish
+  api("/api/adaptive/update",{method:"POST",
+    body:JSON.stringify({category:q.category||"general", correct})});
+  if(q.type==="word" && q.id)
+    api(`/api/words/${q.id}/review`,{method:"POST",body:JSON.stringify({correct})});
+  if(q.type==="cloze" && q.id)
+    api(`/api/cloze/${q.id}/result`,{method:"POST",
+      body:JSON.stringify({correct, category:q.category})});
+
+  const fb = $("adaptFeedback");
+  fb.className = `quiz-feedback ${correct?"correct":"wrong"}`;
+  fb.style.display = "block";
+  fb.innerHTML = correct
+    ? `✅ To'g'ri! +10 ball${q.pron?` <em>🔊 ${q.pron}</em>`:""}`
+    : `❌ Noto'g'ri! To'g'ri: <strong>${q.answer}</strong>`;
+
+  setTimeout(()=>{ AdaptState.index++; showAdaptQuestion(); }, 1300);
+}
+
+async function endAdaptiveTest(){
+  $("adaptivePlay").style.display   = "none";
+  const total    = AdaptState.questions.length;
+  const correct  = AdaptState.answers.filter(a=>a.correct).length;
+  const pct      = Math.round(correct/total*100);
+  const elapsed  = Math.round((Date.now()-AdaptState.start)/1000);
+  const emoji    = pct>=90?"🏆":pct>=70?"🎉":pct>=50?"😊":"💪";
+
+  AdaptState.xp = AdaptState.score;
+  await api("/api/history",{method:"POST",body:JSON.stringify({
+    lesson_type:"adaptive", duration_sec:elapsed,
+    score:pct, xp_earned:AdaptState.xp,
+    details:{correct, wrong:total-correct, total, type:AdaptState.type},
+  })});
+  await loadProfile();
+
+  // Maslahat
+  const weakCats = [...new Set(AdaptState.answers.filter(a=>!a.correct).map(a=>a.category))];
+  const adviceEl = $("adaptResultAdvice");
+  adviceEl.innerHTML = weakCats.length
+    ? `<div class="adapt-advice-text">
+        💡 <b>Maslahat:</b> ${weakCats.join(", ")} mavzularida ko'proq mashq qiling!
+        <button class="btn btn-sm btn-ghost" onclick="navigate('vocabulary')">📖 Lug'atga o'tish</button>
+       </div>`
+    : "";
+
+  $("adaptResultEmoji").textContent = emoji;
+  $("adaptResultScore").textContent = `${AdaptState.score} ball — ${pct}%`;
+  $("adaptResultDetails").innerHTML = `
+    <div style="color:var(--text2);margin-bottom:12px">
+      ✅ ${correct} to'g'ri · ❌ ${total-correct} noto'g'ri · ⏱ ${secToMin(elapsed)}
+    </div>`;
+  $("adaptiveResult").style.display = "block";
+  toast(`🎉 ${AdaptState.xp} XP qo'shildi!`, "success");
+}
+
+// ══════════════════════════════════════════════════
+// ROLEPLAY (Dialog Mashqi)
+// ══════════════════════════════════════════════════
+const RpState = { sessionId:null, scenario:null, isTyping:false };
+
+const RP_HINTS = {
+  shop:    ["Сколько стоит?","Мне нравится.","Это дорого.","Я возьму это."],
+  doctor:  ["Болит голова.","Мне плохо.","Какие таблетки?","Спасибо, доктор."],
+  cafe:    ["Дайте меню.","Я буду...","Это вкусно!","Счёт, пожалуйста."],
+  airport: ["У меня есть билет.","Где выход?","Мой багаж.","Где туалет?"],
+  hotel:   ["Есть свободные номера?","Сколько стоит?","Когда выезд?","Спасибо!"],
+  bank:    ["Хочу открыть счёт.","Курс доллара?","Есть карта?","Переведите деньги."],
+  friend:  ["Как дела?","Что нового?","Пойдём погуляем?","Увидимся!"],
+  job:     ["Я ищу работу.","У меня опыт 3 года.","Какая зарплата?","Когда начать?"],
+};
+
+async function loadRoleplayPage(){
+  const scenarios = await api("/api/roleplay/scenarios");
+  const grid      = $("rpGrid");
+  if(!grid||!scenarios) return;
+  grid.innerHTML = (scenarios||[]).map(s=>`
+    <div class="rp-card" onclick="startRoleplay('${s.id}')">
+      <div class="rp-icon">${s.icon||"🎭"}</div>
+      <div class="rp-info">
+        <div class="rp-title">${s.title}</div>
+        <div class="rp-roles">
+          <span>Sen: ${s.user_role}</span>
+          <span>AI: ${s.ai_role}</span>
+        </div>
+      </div>
+      <button class="btn btn-primary btn-sm">▶ Boshlash</button>
+    </div>`).join("");
+}
+
+async function startRoleplay(scenarioId){
+  $("rpScenarios").style.display = "none";
+  $("rpResult").style.display    = "none";
+  $("rpChat").style.display      = "block";
+  $("rpEndBtn").style.display    = "inline-flex";
+  $("rpMessages").innerHTML      = "";
+  RpState.scenario = scenarioId;
+
+  const r = await api("/api/roleplay/start",{method:"POST",
+    body:JSON.stringify({scenario:scenarioId})});
+  if(!r?.ok){ toast("❌ Xatolik","error"); return; }
+
+  RpState.sessionId = r.session_id;
+  $("rpHeader").innerHTML = `
+    <div class="rp-active-header">
+      <span>${r.icon||"🎭"} ${r.title}</span>
+      <div style="font-size:12px;color:var(--text2)">
+        Sen: <b>${r.user_role}</b> · AI: <b>${r.ai_role}</b>
+      </div>
+    </div>`;
+
+  appendRpMsg("assistant", r.response, r.offline||false);
+  // Foydali iboralarni ko'rsatish
+  const hints = RP_HINTS[scenarioId] || RP_HINTS.friend;
+  $("rpHints").innerHTML = hints.map(h=>
+    `<button class="rp-hint-chip" onclick="insertRpText('${h}')">${h}</button>`
+  ).join("");
+  if(r.offline) toast("📵 Offline rejim","info",1500);
+}
+
+function appendRpMsg(role, content, offline=false){
+  const msgs = $("rpMessages");
+  const div  = document.createElement("div");
+  div.className = `chat-msg ${role}`;
+  const avatar = role==="assistant"?"🤖":"👤";
+  const offTag = offline?`<span class="msg-offline-tag">📵</span>`:"";
+  const ttsText = content.split("\n")[0].replace(/[()]/g,"").trim();
+  div.innerHTML = `
+    <div class="msg-avatar">${avatar}</div>
+    <div class="msg-body">
+      <div class="msg-bubble">${content.replace(/\n/g,"<br>").replace(/\[(.*?)\]/g,"<span class='err-right'>[$1]</span>")}${offTag}</div>
+      <div class="msg-actions">
+        <button class="tts-msg-btn" onclick="ttsSpeakEl(this)"
+          data-text="${ttsText.replace(/"/g,'&quot;')}" title="Eshitish">🔊</button>
+      </div>
+    </div>`;
+  msgs.appendChild(div);
+  msgs.scrollTop = msgs.scrollHeight;
+  if(role==="assistant"&&Chat.ttsEnabled) ttsSpeak(ttsText, true);
+}
+
+async function sendRoleplay(){
+  const inp = $("rpInput");
+  const msg = inp?.value.trim();
+  if(!msg||RpState.isTyping) return;
+  inp.value = "";
+  appendRpMsg("user", msg);
+  RpState.isTyping = true;
+
+  const div = document.createElement("div");
+  div.className="chat-msg assistant typing-msg"; div.id="rpTyping";
+  div.innerHTML=`<div class="msg-avatar">🤖</div><div class="msg-body"><div class="msg-bubble typing-dots"><span></span><span></span><span></span></div></div>`;
+  $("rpMessages").appendChild(div); $("rpMessages").scrollTop=$("rpMessages").scrollHeight;
+
+  const r = await api("/api/roleplay/chat",{method:"POST",
+    body:JSON.stringify({session_id:RpState.sessionId, message:msg})});
+  document.getElementById("rpTyping")?.remove();
+  RpState.isTyping = false;
+
+  if(r?.ok) appendRpMsg("assistant", r.response, r.offline||false);
+  else      appendRpMsg("assistant","❌ Xatolik yuz berdi");
+}
+
+function insertRpText(txt){
+  const inp=$("rpInput"); if(inp){inp.value=txt;inp.focus();}
+}
+
+function toggleRpMic(){
+  // Mavjud toggleMic funksiyasini roleplay uchun moslashtirish
+  const btn=$("rpMicBtn");
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SR){toast("❌ Mikrofon qo'llab-quvvatlanmaydi","warn");return;}
+  if(Chat.micActive){Chat.recognition?.stop();return;}
+  const rec=new SR(); rec.lang="ru-RU"; rec.continuous=false;
+  Chat.recognition=rec; Chat.micActive=true;
+  if(btn){btn.textContent="🔴";}
+  rec.onresult=e=>{
+    const t=Array.from(e.results).map(r=>r[0].transcript).join("");
+    const inp=$("rpInput"); if(inp) inp.value=t;
+  };
+  rec.onend=()=>{Chat.micActive=false;if(btn)btn.textContent="🎤";};
+  rec.onerror=()=>{Chat.micActive=false;if(btn)btn.textContent="🎤";};
+  rec.start();
+}
+
+async function endRoleplay(){
+  if(!RpState.sessionId) return;
+  const r = await api("/api/roleplay/end",{method:"POST",
+    body:JSON.stringify({session_id:RpState.sessionId})});
+  $("rpChat").style.display    = "none";
+  $("rpEndBtn").style.display  = "none";
+  $("rpResult").style.display  = "block";
+  const score   = r?.score||0;
+  const turns   = r?.turns||0;
+  const emoji   = score>=70?"🏆":score>=40?"🎉":"💪";
+  $("rpScore").textContent  = `${score} ball · ${turns} ta gap`;
+  $("rpFeedback").innerHTML = `
+    <div class="rp-feedback">
+      ${emoji} ${score>=70?"Ajoyib suhbat!":score>=40?"Yaxshi mashq!":"Davom eting, har safar yaxshilanasiz!"}
+      <br><span class="muted">Streak yangilandi 🔥 +${Math.round(score/2)} XP</span>
+    </div>`;
+  await loadProfile();
+  if(r?.ok) toast(`🎭 ${r.score} ball! +${Math.round(r.score/2)} XP`,"success");
+}
+
+function showRpScenarios(){
+  $("rpResult").style.display    = "none";
+  $("rpScenarios").style.display = "block";
+  RpState.sessionId = null;
+}
 
 // ══════════════════════════════════════════════════
 // CLOCK — Real-vaqt soat va dars eslatmasi
@@ -1981,6 +2481,7 @@ document.addEventListener("click", e=>{
 async function init(){
   await loadProfile();
   await loadSettings();
+  await updateStreakBadge();
   const netStatus=await api("/api/internet/status");
   updateInternetUI(netStatus.allowed!==false);
   navigate("home");

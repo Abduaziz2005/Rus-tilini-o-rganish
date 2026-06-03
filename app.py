@@ -277,6 +277,58 @@ class Database:
             use_count INTEGER DEFAULT 0
         );
         CREATE INDEX IF NOT EXISTS idx_knowledge_q ON ai_knowledge(question);
+
+        -- Foydalanuvchi profil xotirasi
+        CREATE TABLE IF NOT EXISTS user_memory (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            key TEXT NOT NULL UNIQUE,
+            value TEXT NOT NULL,
+            updated_at TEXT DEFAULT (datetime('now'))
+        );
+
+        -- Cloze test savollari (bo'shliq to'ldirish)
+        CREATE TABLE IF NOT EXISTS cloze_tests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sentence_ru TEXT NOT NULL,
+            sentence_uz TEXT NOT NULL,
+            answer TEXT NOT NULL,
+            options_json TEXT DEFAULT '[]',
+            category TEXT DEFAULT 'general',
+            level TEXT DEFAULT 'beginner',
+            times_seen INTEGER DEFAULT 0,
+            times_correct INTEGER DEFAULT 0
+        );
+
+        -- Adaptiv test natijalari (qaysi kategoriyalar kuchsiz)
+        CREATE TABLE IF NOT EXISTS adaptive_stats (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            category TEXT NOT NULL,
+            correct INTEGER DEFAULT 0,
+            wrong INTEGER DEFAULT 0,
+            last_tested TEXT DEFAULT (datetime('now')),
+            UNIQUE(category)
+        );
+
+        -- Roleplay sessiyalar
+        CREATE TABLE IF NOT EXISTS roleplay_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            role_type TEXT NOT NULL,
+            user_role TEXT DEFAULT '',
+            ai_role TEXT DEFAULT '',
+            messages_json TEXT DEFAULT '[]',
+            score INTEGER DEFAULT 0,
+            started_at TEXT DEFAULT (datetime('now')),
+            ended_at TEXT DEFAULT ''
+        );
+
+        -- Streak kuzatuv
+        CREATE TABLE IF NOT EXISTS streak_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT NOT NULL UNIQUE,
+            xp_earned INTEGER DEFAULT 0,
+            minutes INTEGER DEFAULT 0,
+            words_learned INTEGER DEFAULT 0
+        );
         """)
         self.conn.commit()
 
@@ -335,6 +387,9 @@ class Database:
             "SELECT COUNT(*) as c FROM grammar_rules WHERE category='navigation'").fetchone()["c"]
         if nav_gr < 2:
             self._insert_navigation_grammar()
+
+        # Cloze test boshlang'ich ma'lumotlar
+        self.cloze_seed()
 
         # Yangi katta kategoriyalar
         new_cats = [
@@ -2034,6 +2089,223 @@ class Database:
         tg = self._row("SELECT COUNT(*) as c FROM grammar_rules")["c"]
         return {"words_dl": dw, "grammar_dl": dg, "total_words": tw, "total_grammar": tg}
 
+    # ── Foydalanuvchi xotirasi ─────────────────────
+    def memory_set(self, key, value):
+        with self._lock:
+            self.conn.execute(
+                "INSERT INTO user_memory(key,value,updated_at) VALUES(?,?,datetime('now')) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=datetime('now')",
+                (key, str(value)))
+            self.conn.commit()
+
+    def memory_get(self, key, default=""):
+        r = self._row("SELECT value FROM user_memory WHERE key=?", (key,))
+        return r["value"] if r else default
+
+    def memory_all(self):
+        return {r["key"]: r["value"] for r in self._rows("SELECT key,value FROM user_memory")}
+
+    # ── Streak kuzatuv ─────────────────────────────
+    def streak_today(self, xp=0, minutes=0, words=0):
+        today = datetime.now().strftime("%Y-%m-%d")
+        with self._lock:
+            self.conn.execute(
+                "INSERT INTO streak_log(date,xp_earned,minutes,words_learned) VALUES(?,?,?,?) "
+                "ON CONFLICT(date) DO UPDATE SET "
+                "xp_earned=xp_earned+excluded.xp_earned, "
+                "minutes=minutes+excluded.minutes, "
+                "words_learned=words_learned+excluded.words_learned",
+                (today, xp, minutes, words))
+            self.conn.commit()
+
+    def streak_last_days(self, n=30):
+        return self._rows(
+            "SELECT * FROM streak_log ORDER BY date DESC LIMIT ?", (n,))
+
+    def streak_current(self):
+        rows = self._rows("SELECT date FROM streak_log ORDER BY date DESC LIMIT 60")
+        if not rows:
+            return 0
+        from datetime import date, timedelta
+        today = date.today()
+        streak = 0
+        for i, row in enumerate(rows):
+            expected = (today - timedelta(days=i)).strftime("%Y-%m-%d")
+            if row["date"] == expected:
+                streak += 1
+            else:
+                break
+        return streak
+
+    # ── Adaptiv test statistikasi ──────────────────
+    def adaptive_update(self, category, correct):
+        with self._lock:
+            self.conn.execute(
+                "INSERT INTO adaptive_stats(category,correct,wrong,last_tested) VALUES(?,?,?,datetime('now')) "
+                "ON CONFLICT(category) DO UPDATE SET "
+                "correct=correct+?, wrong=wrong+?, last_tested=datetime('now')",
+                (category, 1 if correct else 0, 0 if correct else 1,
+                 1 if correct else 0, 0 if correct else 1))
+            self.conn.commit()
+
+    def adaptive_weakest(self, limit=5):
+        """Eng kuchsiz kategoriyalar (xato ko'proq)"""
+        rows = self._rows(
+            "SELECT category, correct, wrong, "
+            "(wrong*1.0/(correct+wrong+1)) as err_rate "
+            "FROM adaptive_stats ORDER BY err_rate DESC LIMIT ?", (limit,))
+        return rows
+
+    def adaptive_stats_all(self):
+        cats = ["greeting","numbers","colors","family","food","verbs",
+                "adjectives","travel","work","health","nature","time",
+                "emotions","navigation","introduction","transport",
+                "animals","clothing","school","sport","math","body",
+                "house","weather","places"]
+        result = []
+        for cat in cats:
+            r = self._row("SELECT * FROM adaptive_stats WHERE category=?", (cat,))
+            if r:
+                total = r["correct"] + r["wrong"]
+                result.append({
+                    "category": cat,
+                    "correct":  r["correct"],
+                    "wrong":    r["wrong"],
+                    "total":    total,
+                    "pct":      round(r["correct"] / max(total,1) * 100),
+                })
+        return result
+
+    # ── Cloze testlar ──────────────────────────────
+    def cloze_seed(self):
+        """Boshlang'ich cloze testlar"""
+        if self._row("SELECT COUNT(*) as c FROM cloze_tests")["c"] >= 5:
+            return
+        tests = [
+            ("Я ___ в школу каждый день.",
+             "Men har kuni maktabga ___.",
+             "иду", json.dumps(["иду","едет","идут","едешь"]), "travel","beginner"),
+            ("Это ___ книга. Мне нравится!",
+             "Bu ___ kitob. Menga yoqdi!",
+             "интересная", json.dumps(["интересная","интересный","интересное","интересные"]), "adjectives","beginner"),
+            ("Меня зовут Алишер. Мне ___ лет.",
+             "Mening ismim Alisher. Menga ___ yosh.",
+             "двадцать", json.dumps(["двадцать","десять","сто","тысяча"]), "numbers","beginner"),
+            ("— Где вокзал? — Идите ___ , потом налево.",
+             "— Vokzal qayerda? — ___ boring, keyin chapga.",
+             "прямо", json.dumps(["прямо","назад","налево","направо"]), "navigation","beginner"),
+            ("Моя мама ___. Она лечит людей.",
+             "Mening onam ___. U odamlarni davolaydi.",
+             "врач", json.dumps(["врач","учитель","инженер","повар"]), "introduction","beginner"),
+            ("Сегодня ___ погода. Светит солнце.",
+             "Bugun ob-havo ___. Quyosh chiqdi.",
+             "хорошая", json.dumps(["хорошая","плохая","холодная","жаркая"]), "weather","beginner"),
+            ("Я люблю ___ музыку по вечерам.",
+             "Men kechqurunlari musiqa ___ sevaman.",
+             "слушать", json.dumps(["слушать","смотреть","читать","писать"]), "verbs","intermediate"),
+            ("В нашем городе есть красивый ___.",
+             "Bizning shahrimizda chiroyli ___ bor.",
+             "парк", json.dumps(["парк","завод","аптека","банк"]), "places","beginner"),
+            ("— Сколько ___ яблоко? — Десять рублей.",
+             "— Olma qancha ___? — O'n so'm.",
+             "стоит", json.dumps(["стоит","весит","есть","имеет"]), "shopping","beginner"),
+            ("Я учусь в ___. Моя специальность — информатика.",
+             "Men ___ da o'qiyman. Mutaxassisligim — informatika.",
+             "университете", json.dumps(["университете","школе","больнице","магазине"]), "school","intermediate"),
+            ("Кошка ___ на диване и спит.",
+             "Mushuk divanda ___ va uxlayapti.",
+             "лежит", json.dumps(["лежит","стоит","сидит","бежит"]), "animals","beginner"),
+            ("Зимой очень ___ . Нужна тёплая куртка.",
+             "Qishda juda ___. Iliq kurtka kerak.",
+             "холодно", json.dumps(["холодно","жарко","тепло","прохладно"]), "weather","beginner"),
+            ("Я ___ по-русски немного, но стараюсь.",
+             "Men rus tilida biroz ___, lekin harakat qilaman.",
+             "говорю", json.dumps(["говорю","пишу","читаю","понимаю"]), "introduction","beginner"),
+            ("На столе стоит стакан ___.",
+             "Stolda bir stakan ___ turibdi.",
+             "воды", json.dumps(["воды","молока","чая","сока"]), "food","beginner"),
+            ("Мой брат ___ в Ташкенте.",
+             "Mening akam Toshkentda ___.",
+             "живёт", json.dumps(["живёт","работает","учится","отдыхает"]), "family","intermediate"),
+        ]
+        for t in tests:
+            self.conn.execute(
+                "INSERT OR IGNORE INTO cloze_tests"
+                "(sentence_ru,sentence_uz,answer,options_json,category,level) VALUES(?,?,?,?,?,?)", t)
+        self.conn.commit()
+
+    def get_cloze_tests(self, level=None, category=None, limit=10):
+        q = "SELECT * FROM cloze_tests WHERE 1=1"
+        p = []
+        if level:    q += " AND level=?";    p.append(level)
+        if category: q += " AND category=?"; p.append(category)
+        q += " ORDER BY RANDOM() LIMIT ?"
+        p.append(limit)
+        return self._rows(q, p)
+
+    def cloze_result(self, cid, correct):
+        if correct:
+            self._exec("UPDATE cloze_tests SET times_seen=times_seen+1, times_correct=times_correct+1 WHERE id=?", (cid,))
+        else:
+            self._exec("UPDATE cloze_tests SET times_seen=times_seen+1 WHERE id=?", (cid,))
+
+    # ── Roleplay ───────────────────────────────────
+    def roleplay_start(self, role_type, user_role, ai_role):
+        return self._ins(
+            "INSERT INTO roleplay_sessions(role_type,user_role,ai_role,messages_json) VALUES(?,?,?,?)",
+            (role_type, user_role, ai_role, "[]"))
+
+    def roleplay_update(self, sid, messages, score=0):
+        self._exec(
+            "UPDATE roleplay_sessions SET messages_json=?, score=? WHERE id=?",
+            (json.dumps(messages), score, sid))
+
+    def roleplay_end(self, sid, score):
+        self._exec(
+            "UPDATE roleplay_sessions SET score=?, ended_at=datetime('now') WHERE id=?",
+            (score, sid))
+
+    def roleplay_get(self, sid):
+        return self._row("SELECT * FROM roleplay_sessions WHERE id=?", (sid,))
+
+    # ── Haftalik hisobot ───────────────────────────
+    def weekly_report(self):
+        from datetime import date, timedelta
+        today = date.today()
+        days = []
+        for i in range(6, -1, -1):
+            d = (today - timedelta(days=i)).strftime("%Y-%m-%d")
+            row = self._row("SELECT * FROM streak_log WHERE date=?", (d,))
+            days.append({
+                "date":         d,
+                "day":          (today - timedelta(days=i)).strftime("%a"),
+                "xp":           row["xp_earned"] if row else 0,
+                "minutes":      row["minutes"]    if row else 0,
+                "words":        row["words_learned"] if row else 0,
+            })
+
+        # So'zlar bo'yicha tahlil
+        worst = self.adaptive_weakest(5)
+
+        # Umumiy statistika
+        week_ago = (today - timedelta(days=7)).strftime("%Y-%m-%d")
+        total_xp     = sum(d["xp"] for d in days)
+        total_min    = sum(d["minutes"] for d in days)
+        total_words  = sum(d["words"] for d in days)
+        active_days  = sum(1 for d in days if d["xp"] > 0)
+        streak       = self.streak_current()
+
+        return {
+            "days":         days,
+            "total_xp":     total_xp,
+            "total_min":    total_min,
+            "total_words":  total_words,
+            "active_days":  active_days,
+            "streak":       streak,
+            "weakest_cats": worst,
+            "radar":        self.adaptive_stats_all(),
+        }
+
 
 # ── Global DB ─────────────────────────────────────
 db = Database()
@@ -2204,6 +2476,7 @@ def api_word_review(wid):
     db.update_word_review(wid, correct)
     xp = 10 if correct else 2
     db.add_xp(xp)
+    db.streak_today(xp=xp, words=1 if correct else 0)
     return jsonify({"ok": True, "xp": xp})
 
 @app.route("/api/words/categories")
@@ -2295,6 +2568,9 @@ def api_add_history():
     d = request.get_json()
     db.add_history(d["lesson_type"], d.get("duration_sec", 0),
                    d.get("score", 0), d.get("xp_earned", 0), d.get("details"))
+    # streak yangilash
+    minutes = round(d.get("duration_sec", 0) / 60)
+    db.streak_today(xp=d.get("xp_earned", 0), minutes=minutes)
     return jsonify({"ok": True, "profile": db.get_profile()})
 
 @app.route("/api/stats")
@@ -2308,8 +2584,10 @@ def api_stats():
 def api_game_score():
     d = request.get_json()
     db.add_game_score(d["game_type"], d["score"], d.get("max_score", 0), d.get("time_sec", 0))
-
-# ══════════════════════════════════════════════════
+    xp = min(50, d["score"] // 2)
+    db.add_xp(xp)
+    db.streak_today(xp=xp, minutes=round(d.get("time_sec", 0) / 60))
+    return jsonify({"ok": True, "xp": xp})
 # AI CHAT v4 — SMART, IKKI TIL, AI O'QITISH
 # ══════════════════════════════════════════════════
 
@@ -2362,43 +2640,82 @@ def _chat_system(level, mode="text", topic="free", custom_topic="", lang="auto")
     elif topic in topic_map:
         topic_ctx = f"Mavzu: {topic_map[topic]}. Shu mavzu doirasida suhbat qil.\n"
 
+    # ── Foydalanuvchi xotirasi ─────────────────────
+    mem = db.memory_all()
+    mem_ctx = ""
+    if mem:
+        mem_ctx = "FOYDALANUVCHI HAQIDA BILADIGANLARIM:\n"
+        labels = {
+            "user_name": "Ismi", "user_age": "Yoshi",
+            "user_city": "Shahri", "user_job": "Kasbi",
+            "user_hobbies": "Qiziqishlari", "user_goal": "Maqsadi",
+            "user_weak_topic": "Kuchsiz mavzu", "user_notes": "Eslatma",
+        }
+        for k, v in mem.items():
+            if v and k in labels:
+                mem_ctx += f"  {labels[k]}: {v}\n"
+        mem_ctx += "\n"
+
+    # ── Bugungi statistika ──────────────────────────
+    try:
+        today_row = db._row("SELECT * FROM streak_log WHERE date=date('now','localtime')")
+        goals_words   = int(db.memory_get("daily_goal_words", "10"))
+        goals_minutes = int(db.get_setting("daily_goal_min",  "30"))
+        goals_xp      = int(db.memory_get("daily_goal_xp",    "50"))
+        t_words   = today_row["words_learned"] if today_row else 0
+        t_minutes = today_row["minutes"]       if today_row else 0
+        t_xp      = today_row["xp_earned"]     if today_row else 0
+        streak    = db.streak_current()
+        # Kuchsiz kategoriyalar
+        weakest = db.adaptive_weakest(3)
+        weak_cats = ", ".join(w["category"] for w in weakest) if weakest else "ma'lumot yo'q"
+        stat_ctx = (
+            f"BUGUNGI PROGRESS:\n"
+            f"  So'zlar: {t_words}/{goals_words} | "
+            f"Daqiqa: {t_minutes}/{goals_minutes} | "
+            f"XP: {t_xp}/{goals_xp} | Streak: {streak} kun\n"
+            f"  Kuchsiz mavzular: {weak_cats}\n\n"
+        )
+    except Exception:
+        stat_ctx = ""
+
+    # ── O'rgatilgan bilimlar ────────────────────────
     knowledge = ai_knowledge_list()
     know_ctx = ""
     if knowledge:
-        know_ctx = "XOTIRAMDA MAVJUD MA'LUMOTLAR (ulardan foydalan):\n"
+        know_ctx = "XOTIRAMDA MAVJUD MA'LUMOTLAR:\n"
         for k in knowledge[:15]:
-            know_ctx += f"  Q: {k['question']} => A: {k['answer']}\n"
+            know_ctx += f"  {k['question']} => {k['answer']}\n"
         know_ctx += "\n"
 
+    # ── Til konteksti ───────────────────────────────
     lang_ctx = ""
     if lang == "uz":
-        lang_ctx = "Foydalanuvchi O'ZBEK tilida gapirmoqda. O'ZBEK TILIDA javob ber (rus izoh bilan)!\n"
+        lang_ctx = "Foydalanuvchi O'ZBEK tilida — O'ZBEK TILIDA javob ber (rus izoh bilan)!\n"
     elif lang == "ru":
-        lang_ctx = "Foydalanuvchi RUS tilida gapirmoqda. RUS TILIDA javob ber (o'zbek tarjima bilan)!\n"
+        lang_ctx = "Foydalanuvchi RUS tilida — RUS TILIDA javob ber (o'zbek tarjima bilan)!\n"
     else:
-        lang_ctx = "Foydalanuvchi tilini aniqlash: o'zbek so'z bo'lsa o'zbekcha, rus bo'lsa ruscha javob ber.\n"
+        lang_ctx = "Tilni aniqlash: o'zbek so'z → o'zbekcha, rus → ruscha javob.\n"
 
     base = (
-        "Sen 'RusLearn Pro' illovasidagi aqlli AI yordamchisan — ismim Alex.\n"
-        "Vazifalarim:\n"
-        "1. Rus va o'zbek tili suhbati, o'qitish.\n"
-        "2. Grammatika tushuntirish, test berish, xatolarni tuzatish.\n"
-        "3. Kundalik suhbat: kun qanday o'tdi, kayfiyat, yangiliklar.\n"
-        "4. Noma'lum savollarni tan olish va foydalanuvchidan o'rganish.\n"
-        f"Daraja: {level}. {hint}\n"
+        "Sen 'RusLearn Pro' illovasidagi shaxsiylashtirilgan AI o'qituvchisan — ismim Alex.\n"
+        f"Foydalanuvchi darajasi: {level}. {hint}\n"
         f"{lang_ctx}"
         f"{topic_ctx}"
+        f"{mem_ctx}"
+        f"{stat_ctx}"
         f"{know_ctx}"
         "QOIDALAR:\n"
-        "1. O'zbek yoki rus tilida javob ber (tilga qarab).\n"
-        "2. Xato ko'rsat: ❌ xato → ✅ to'g'ri shakli.\n"
-        "3. Ma'lumot yo'q bo'lsa, 'bu haqida ma'lumotim yo'q' de va quyidagini qo'sh:\n"
+        "1. Foydalanuvchini ISMI bilan murojaat qil (agar bilsang).\n"
+        "2. Xato ko'rsat: ❌ xato → ✅ to'g'ri.\n"
+        "3. Maqsadga intilishni rag'batlantir: bugungi progress yaxshi bo'lsa tabriklash.\n"
+        "4. Kuchsiz mavzularda ko'proq savol ber.\n"
+        "5. Bilmagan savolda: 'bu haqida ma'lumotim yo'q' de,\n"
         "   ACTIONS: [{\"label\":\"✅ Ha, o'rgataman\",\"action\":\"teach\","
         "\"question\":\"<savol>\",\"hint\":\"Javobni yozing...\"},"
         "{\"label\":\"➡️ Yo'q, davom eting\",\"action\":\"skip\"}]\n"
-        "4. Ba'zan test ber: '❓ Savol: ...'\n"
-        "5. Ba'zan bugungi kun haqida so'ra.\n"
-        "6. 4-6 gapdan oshirma.\n"
+        "6. Ba'zan: ❓ test ber | bugungi kun haqida so'ra | motivatsion gap ayt.\n"
+        "7. 4-6 gapdan oshirma.\n"
     )
     if mode == "choice":
         base += (
@@ -2800,6 +3117,400 @@ def api_dl_all_words():
     for g in grammar:
         db.mark_downloaded("grammar", g["id"])
     return jsonify({"ok": True, "count": len(words) + len(grammar)})
+
+# ══════════════════════════════════════════════════
+# XOTIRA VA SHAXSIYLASHTIRISH
+# ══════════════════════════════════════════════════
+
+@app.route("/api/memory", methods=["GET"])
+@require_auth
+def api_memory_get():
+    return jsonify(db.memory_all())
+
+@app.route("/api/memory", methods=["POST"])
+@require_auth
+def api_memory_set():
+    for k, v in request.get_json().items():
+        db.memory_set(k, v)
+    return jsonify({"ok": True})
+
+@app.route("/api/memory/<key>", methods=["DELETE"])
+@require_auth
+def api_memory_delete(key):
+    db._exec("DELETE FROM user_memory WHERE key=?", (key,))
+    return jsonify({"ok": True})
+
+
+# ══════════════════════════════════════════════════
+# STREAK VA HAFTALIK HISOBOT
+# ══════════════════════════════════════════════════
+
+@app.route("/api/streak")
+@require_auth
+def api_streak():
+    today_row = db._row(
+        "SELECT * FROM streak_log WHERE date=date('now','localtime')")
+    return jsonify({
+        "current":     db.streak_current(),
+        "today":       today_row or {"xp_earned":0,"minutes":0,"words_learned":0},
+        "last_30":     db.streak_last_days(30),
+    })
+
+@app.route("/api/streak/log", methods=["POST"])
+@require_auth
+def api_streak_log():
+    d = request.get_json()
+    db.streak_today(
+        xp      = d.get("xp", 0),
+        minutes = d.get("minutes", 0),
+        words   = d.get("words", 0),
+    )
+    return jsonify({"ok": True, "streak": db.streak_current()})
+
+@app.route("/api/weekly-report")
+@require_auth
+def api_weekly_report():
+    report = db.weekly_report()
+    # Profil va xotira ham qo'shamiz
+    report["profile"] = db.get_profile()
+    report["memory"]  = db.memory_all()
+    return jsonify(report)
+
+
+# ══════════════════════════════════════════════════
+# ADAPTIV TEST VA STATISTIKA
+# ══════════════════════════════════════════════════
+
+@app.route("/api/adaptive/stats")
+@require_auth
+def api_adaptive_stats():
+    return jsonify({
+        "all":     db.adaptive_stats_all(),
+        "weakest": db.adaptive_weakest(5),
+    })
+
+@app.route("/api/adaptive/update", methods=["POST"])
+@require_auth
+def api_adaptive_update():
+    d = request.get_json()
+    cat     = d.get("category", "general")
+    correct = d.get("correct", False)
+    db.adaptive_update(cat, correct)
+    xp = 5 if correct else 1
+    db.add_xp(xp)
+    db.streak_today(xp=xp, words=1 if correct else 0)
+    return jsonify({"ok": True, "xp": xp})
+
+@app.route("/api/adaptive/words")
+@require_auth
+def api_adaptive_words():
+    """Eng kuchsiz kategoriyalardan so'z qaytaradi"""
+    weakest = db.adaptive_weakest(3)
+    if not weakest:
+        # Hali sinalmagan — umumiy so'zlar
+        return jsonify(db.get_words(limit=20))
+    words = []
+    for cat_row in weakest:
+        cat = cat_row["category"]
+        cat_words = db.get_words(category=cat, limit=10)
+        words.extend(cat_words)
+    import random
+    random.shuffle(words)
+    return jsonify(words[:20])
+
+
+# ══════════════════════════════════════════════════
+# CLOZE TEST (Bo'shliq to'ldirish)
+# ══════════════════════════════════════════════════
+
+@app.route("/api/cloze")
+@require_auth
+def api_cloze_list():
+    level    = request.args.get("level", "")
+    category = request.args.get("category", "")
+    limit    = request.args.get("limit", 10, type=int)
+    return jsonify(db.get_cloze_tests(
+        level    = level or None,
+        category = category or None,
+        limit    = limit,
+    ))
+
+@app.route("/api/cloze/<int:cid>/result", methods=["POST"])
+@require_auth
+def api_cloze_result(cid):
+    d       = request.get_json()
+    correct = d.get("correct", False)
+    db.cloze_result(cid, correct)
+    db.adaptive_update(d.get("category","general"), correct)
+    xp = 8 if correct else 2
+    db.add_xp(xp)
+    db.streak_today(xp=xp, words=1 if correct else 0)
+    return jsonify({"ok": True, "xp": xp})
+
+@app.route("/api/cloze", methods=["POST"])
+@require_auth
+def api_cloze_add():
+    d = request.get_json()
+    cid = db._ins(
+        "INSERT INTO cloze_tests"
+        "(sentence_ru,sentence_uz,answer,options_json,category,level) VALUES(?,?,?,?,?,?)",
+        (d["sentence_ru"], d["sentence_uz"], d["answer"],
+         json.dumps(d.get("options",[])),
+         d.get("category","general"), d.get("level","beginner")))
+    return jsonify({"ok": True, "id": cid})
+
+
+# ══════════════════════════════════════════════════
+# ROLEPLAY SESSIYA
+# ══════════════════════════════════════════════════
+
+ROLEPLAY_SCENARIOS = {
+    "shop": {
+        "title":    "🛒 Do'konda xarid",
+        "user_role": "Xaridor (покупатель)",
+        "ai_role":   "Sotuvchi (продавец)",
+        "starter":   "Здравствуйте! Чем могу помочь? (Salom! Qanday yordam bera olaman?)",
+        "icon":      "🛒",
+    },
+    "doctor": {
+        "title":    "🏥 Doktorga borish",
+        "user_role": "Bemor (пациент)",
+        "ai_role":   "Shifokor (врач)",
+        "starter":   "Здравствуйте, присаживайтесь. На что жалуетесь? (Salom, o'tiring. Nima shikoyatingiz?)",
+        "icon":      "🏥",
+    },
+    "cafe": {
+        "title":    "☕ Kafeda",
+        "user_role": "Mehmon (гость)",
+        "ai_role":   "Ofitsiant (официант)",
+        "starter":   "Добрый день! Что будете заказывать? (Xayrli kun! Nima buyurasiz?)",
+        "icon":      "☕",
+    },
+    "airport": {
+        "title":    "✈️ Aeroportda",
+        "user_role": "Yo'lovchi (пассажир)",
+        "ai_role":   "Havo kompaniyasi xodimi",
+        "starter":   "Здравствуйте! Ваш паспорт, пожалуйста. (Salom! Pasportingizni bering.)",
+        "icon":      "✈️",
+    },
+    "hotel": {
+        "title":    "🏨 Mehmonxona",
+        "user_role": "Mehmon (гость)",
+        "ai_role":   "Resepsionchi (администратор)",
+        "starter":   "Добрый вечер! У вас есть бронь? (Xayrli kechqurun! Bron qilganmisiz?)",
+        "icon":      "🏨",
+    },
+    "bank": {
+        "title":    "🏦 Bankda",
+        "user_role": "Mijoz (клиент)",
+        "ai_role":   "Bank xodimi",
+        "starter":   "Здравствуйте! Чем могу помочь? (Salom! Qanday yordam beraman?)",
+        "icon":      "🏦",
+    },
+    "friend": {
+        "title":    "👫 Do'st bilan suhbat",
+        "user_role": "O'zing",
+        "ai_role":   "Rus tilida gaplashadigan do'st",
+        "starter":   "Привет! Как дела? Давно не виделись! (Salom! Qanday ishlar? Ko'rishmaganimizga ko'p bo'ldi!)",
+        "icon":      "👫",
+    },
+    "job": {
+        "title":    "💼 Ish suhbati",
+        "user_role": "Nomzod (кандидат)",
+        "ai_role":   "HR menejer",
+        "starter":   "Здравствуйте! Расскажите немного о себе. (Salom! O'zingiz haqingizda gapirib bering.)",
+        "icon":      "💼",
+    },
+}
+
+@app.route("/api/roleplay/scenarios")
+@require_auth
+def api_roleplay_scenarios():
+    return jsonify([
+        {"id": k, **{kk: vv for kk, vv in v.items() if kk != "starter"}}
+        for k, v in ROLEPLAY_SCENARIOS.items()
+    ])
+
+@app.route("/api/roleplay/start", methods=["POST"])
+@require_auth
+def api_roleplay_start():
+    d        = request.get_json()
+    role_key = d.get("scenario", "shop")
+    level    = db.get_setting("ai_conversation_level", "beginner")
+    sc       = ROLEPLAY_SCENARIOS.get(role_key, ROLEPLAY_SCENARIOS["shop"])
+
+    internet = db.get_setting("internet_allowed", "on") == "on"
+    if not internet or not GEMINI_API_KEY:
+        sid = db.roleplay_start(role_key, sc["user_role"], sc["ai_role"])
+        return jsonify({
+            "ok": True, "session_id": sid,
+            "response":   sc["starter"],
+            "user_role":  sc["user_role"],
+            "ai_role":    sc["ai_role"],
+            "title":      sc["title"],
+            "icon":       sc["icon"],
+            "offline":    True,
+        })
+
+    system = (
+        f"Sen RusLearn Pro ilovasida ROLEPLAY o'yini o'ynayapsan.\n"
+        f"Sening roling: {sc['ai_role']}\n"
+        f"Foydalanuvchi roli: {sc['user_role']}\n"
+        f"Daraja: {level}\n"
+        f"Sahna: {sc['title']}\n\n"
+        "QOIDALAR:\n"
+        "1. O'z rolingda qol — haqiqiy suhbat olib bor.\n"
+        "2. Rus tilida gapir + qavsda o'zbekcha tarjima qo'sh.\n"
+        "3. Foydalanuvchi xato qilsa, aylantirmasdan o'sha sahnada davom et "
+        "   va xatoning to'g'risini keyingi xabar oxirida [ ] ichida ko'rsat.\n"
+        "4. Sahnani realistik va qiziqarli olib bor.\n"
+        "5. Har javob 2-4 gap bo'lsin.\n"
+        f"6. Suhbatni boshlash uchun: \"{sc['starter']}\""
+    )
+    resp = call_ai(
+        [{"role": "user", "content": "Начнём!"}],
+        system_prompt=system, max_tokens=300,
+    )
+    starter = resp or sc["starter"]
+    sid = db.roleplay_start(role_key, sc["user_role"], sc["ai_role"])
+    return jsonify({
+        "ok": True, "session_id": sid,
+        "response":  starter,
+        "user_role": sc["user_role"],
+        "ai_role":   sc["ai_role"],
+        "title":     sc["title"],
+        "icon":      sc["icon"],
+    })
+
+@app.route("/api/roleplay/chat", methods=["POST"])
+@require_auth
+def api_roleplay_chat():
+    d        = request.get_json()
+    sid      = d.get("session_id")
+    user_msg = d.get("message", "").strip()
+    level    = db.get_setting("ai_conversation_level", "beginner")
+
+    if not sid or not user_msg:
+        return jsonify({"error": "session_id va message kerak"}), 400
+
+    session_data = db.roleplay_get(sid)
+    if not session_data:
+        return jsonify({"error": "Sessiya topilmadi"}), 404
+
+    role_key = session_data["role_type"]
+    sc       = ROLEPLAY_SCENARIOS.get(role_key, ROLEPLAY_SCENARIOS["shop"])
+
+    internet = db.get_setting("internet_allowed", "on") == "on"
+    if not internet or not GEMINI_API_KEY:
+        db.add_xp(3)
+        return jsonify({"response": "Хорошо! Продолжайте. (Yaxshi! Davom eting.)", "ok": True, "offline": True})
+
+    # Oldingi xabarlar
+    try:
+        prev_msgs = json.loads(session_data["messages_json"] or "[]")
+    except Exception:
+        prev_msgs = []
+
+    system = (
+        f"Sen RusLearn roleplay o'yinida {sc['ai_role']} rolini o'ynayapsan.\n"
+        f"Sahna: {sc['title']} | Daraja: {level}\n"
+        "Har javob 2-4 gap. Sahnadan chiqma. Xato = [ To'g'risi: ... ] format."
+    )
+    messages = prev_msgs + [{"role": "user", "content": user_msg}]
+    resp = call_ai(messages, system_prompt=system, max_tokens=300)
+    if not resp:
+        return jsonify({"response": sc["starter"], "ok": True, "offline": True})
+
+    prev_msgs.append({"role": "user",      "content": user_msg})
+    prev_msgs.append({"role": "assistant", "content": resp})
+    db.roleplay_update(sid, prev_msgs[-20:])   # oxirgi 20 ta xabar
+    db.add_xp(5)
+    db.streak_today(xp=5, minutes=1)
+    return jsonify({"response": resp, "ok": True})
+
+@app.route("/api/roleplay/end", methods=["POST"])
+@require_auth
+def api_roleplay_end():
+    d   = request.get_json()
+    sid = d.get("session_id")
+    if not sid:
+        return jsonify({"error": "session_id kerak"}), 400
+
+    session_data = db.roleplay_get(sid)
+    if not session_data:
+        return jsonify({"error": "Topilmadi"}), 404
+
+    try:
+        msgs = json.loads(session_data["messages_json"] or "[]")
+    except Exception:
+        msgs = []
+
+    user_turns = sum(1 for m in msgs if m.get("role") == "user")
+    score = min(100, user_turns * 10)
+    db.roleplay_end(sid, score)
+    db.add_xp(score // 2)
+    db.streak_today(xp=score//2, minutes=user_turns * 2)
+    return jsonify({"ok": True, "score": score, "turns": user_turns})
+
+
+# ══════════════════════════════════════════════════
+# MAQSAD KUZATUV VA HISOBOT
+# ══════════════════════════════════════════════════
+
+@app.route("/api/goals")
+@require_auth
+def api_goals_get():
+    goal_words   = int(db.memory_get("daily_goal_words",  "10"))
+    goal_minutes = int(db.get_setting("daily_goal_min",   "30"))
+    today        = db._row(
+        "SELECT * FROM streak_log WHERE date=date('now','localtime')")
+    stats = db.get_stats()
+    return jsonify({
+        "goals": {
+            "words":   goal_words,
+            "minutes": goal_minutes,
+            "xp":      int(db.memory_get("daily_goal_xp", "50")),
+        },
+        "today": {
+            "words":   today["words_learned"] if today else 0,
+            "minutes": today["minutes"]        if today else int(stats.get("today_min",0)),
+            "xp":      today["xp_earned"]      if today else 0,
+        },
+        "streak": db.streak_current(),
+    })
+
+@app.route("/api/goals", methods=["POST"])
+@require_auth
+def api_goals_set():
+    d = request.get_json()
+    if "words"   in d: db.memory_set("daily_goal_words", d["words"])
+    if "xp"      in d: db.memory_set("daily_goal_xp",    d["xp"])
+    if "minutes" in d: db.set_setting("daily_goal_min",  str(d["minutes"]))
+    return jsonify({"ok": True})
+
+@app.route("/api/goals/report")
+@require_auth
+def api_goals_report():
+    """Bugungi maqsad bajarilish foizi + motivatsion xabar"""
+    r    = api_goals_get().get_json()
+    g    = r["goals"]
+    t    = r["today"]
+    pcts = {
+        "words":   min(100, round(t["words"]   / max(g["words"],1)   * 100)),
+        "minutes": min(100, round(t["minutes"] / max(g["minutes"],1) * 100)),
+        "xp":      min(100, round(t["xp"]      / max(g["xp"],1)      * 100)),
+    }
+    avg = round(sum(pcts.values()) / 3)
+    if avg >= 100:
+        msg = "🏆 Barcha maqsadlar bajarildi! Ajoyib ish!"
+    elif avg >= 70:
+        msg = f"🔥 Yaxshi bormoqda! {100-avg}% qoldi."
+    elif avg >= 40:
+        msg = f"💪 Davom eting! Hali {g['words']-t['words']} so'z va {g['minutes']-t['minutes']} daqiqa qoldi."
+    else:
+        msg = "⏰ Bugun hali ko'p ish bor! Boshlang!"
+    return jsonify({**r, "pcts": pcts, "avg_pct": avg, "message": msg})
+
 
 # ── Notify test ────────────────────────────────────
 @app.route("/api/notify/test", methods=["POST"])
