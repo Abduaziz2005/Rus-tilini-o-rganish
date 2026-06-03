@@ -30,6 +30,14 @@ const State = {
   historyList: [],
   searchTimer: null,
   chartInstance: null,
+  // Grammar lesson mode
+  gmRules: [],
+  gmIndex: 0,
+  gmXP: 0,
+  gmCurrentExIndex: 0,
+  gmCurrentExAnswers: [],
+  // Category test
+  catTest: { cat:"", words:[], index:0, score:0, answers:[], start:null },
 };
 
 
@@ -587,35 +595,79 @@ async function endFlashcards(){
 // GRAMMAR PAGE
 // ══════════════════════════════════════════════════
 let _grammarLevel = "all";
+let _grammarCat   = "";
 
 async function loadGrammar(){
   const lvl = _grammarLevel==="all"?"":_grammarLevel;
-  const rules = await api(`/api/grammar${lvl?`?level=${lvl}`:""}`);
+  let url = `/api/grammar${lvl?`?level=${lvl}`:""}`;
+  if(_grammarCat) url = `/api/grammar?category=${_grammarCat}`;
+  const rules = await api(url);
   if(!rules||rules.error) return;
   State.grammar=rules;
+
+  // ── Bosqichlar paneli ──
+  await renderGrammarSteps();
+
   const list=$("grammarList");
   if(!rules.length){
-    list.innerHTML=`<div class="empty-state"><div class="empty-icon">📝</div><p>Grammatika qoidalari topilmadi</p></div>`;
+    list.innerHTML=`<div class="empty-state"><div class="empty-icon">📝</div>
+      <p>Grammatika qoidalari topilmadi</p></div>`;
     return;
   }
-  list.innerHTML=rules.map(r=>`
+  const catLabels={alphabet:"🔤 Alifbo",nouns:"🏷 Otlar",pronouns:"👤 Olmoshlar",
+    adjectives:"🎨 Sifatlar",verbs:"⚡ Fe'llar",cases:"📐 Kelshiklar",grammar:"📝 Grammatika"};
+  list.innerHTML=rules.map((r,i)=>`
     <div class="grammar-card" id="gc-${r.id}" onclick="openGrammarDetail(${r.id})">
       <div class="gc-top">
         <div>
+          <div class="gc-step-num">${i+1}</div>
           <div class="gc-title">${r.title}</div>
-          <div class="gc-preview">${r.content}</div>
+          <div class="gc-preview">${r.content.slice(0,80).replace(/\n/g," ")}...</div>
         </div>
-        <span class="wc-level level-${r.level}">${levelEmoji(r.level)}</span>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+          <span class="wc-level level-${r.level}">${levelEmoji(r.level)}</span>
+          <span class="gc-cat-badge">${catLabels[r.category]||r.category}</span>
+        </div>
       </div>
       <div class="gc-actions">
-        <span class="wc-cat">${r.category||""}</span>
-        <button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();openGrammarEditById(${r.id})">✏️</button>
+        <button class="btn btn-sm btn-primary" onclick="event.stopPropagation();startGrammarLessonFrom(${r.id})">▶ O'rganish</button>
+        <button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();openGrammarEditById(${r.id})">✏️ Tahrirlash</button>
       </div>
     </div>`).join("");
 }
 
+async function renderGrammarSteps(){
+  const all = await api("/api/grammar");
+  const track=$("grammarStepsTrack");
+  if(!track||!all) return;
+  const steps=[
+    {key:"alphabet",label:"Alifbo",icon:"🔤"},
+    {key:"nouns",label:"Otlar",icon:"🏷"},
+    {key:"pronouns",label:"Olmoshlar",icon:"👤"},
+    {key:"adjectives",label:"Sifatlar",icon:"🎨"},
+    {key:"verbs",label:"Fe'llar",icon:"⚡"},
+    {key:"cases",label:"Kelshiklar",icon:"📐"},
+  ];
+  track.innerHTML=steps.map((s,i)=>{
+    const count=all.filter(r=>r.category===s.key).length;
+    const done=count>0;
+    return `<div class="step-item${done?" done":""}" onclick="filterGrammarCat('${s.key}')">
+      <div class="step-circle">${done?"✓":i+1}</div>
+      <div class="step-label">${s.icon} ${s.label}</div>
+      <div class="step-count">${count} qoida</div>
+    </div>${i<steps.length-1?`<div class="step-connector${done?" done":""}"></div>`:""}`;
+  }).join("");
+}
+
 function filterGrammar(lvl, el){
-  _grammarLevel=lvl;
+  _grammarLevel=lvl; _grammarCat="";
+  document.querySelectorAll(".g-tab").forEach(t=>t.classList.remove("active"));
+  if(el) el.classList.add("active");
+  loadGrammar();
+}
+
+function filterGrammarCat(cat, el){
+  _grammarCat=cat; _grammarLevel="all";
   document.querySelectorAll(".g-tab").forEach(t=>t.classList.remove("active"));
   if(el) el.classList.add("active");
   loadGrammar();
@@ -676,7 +728,6 @@ function openGrammarEdit(){
   if(!State.currentGrammarItem) return;
   openGrammarEditById(State.currentGrammarItem.id);
 }
-
 async function openGrammarEditById(id){
   const r = State.grammar.find(g=>g.id===id)||await api(`/api/grammar/${id}`);
   if(!r) return;
@@ -1370,3 +1421,414 @@ async function init(){
 }
 
 document.addEventListener("DOMContentLoaded", init);
+
+
+// ══════════════════════════════════════════════════
+// GRAMMAR LESSON MODE (bosqichma-bosqich o'qitish)
+// ══════════════════════════════════════════════════
+async function startGrammarLesson(){
+  const rules = await api("/api/grammar");
+  if(!rules||!rules.length){ toast("Grammatika qoidalari topilmadi","warn"); return; }
+  State.gmRules = rules; State.gmIndex = 0; State.gmXP = 0;
+  $("grammarList").style.display="none";
+  $("grammarStepsPanel").style.display="none";
+  document.querySelector(".grammar-tabs").style.display="none";
+  $("grammarLessonMode").style.display="block";
+  gmShowRule(0);
+}
+
+async function startGrammarLessonFrom(ruleId){
+  const rules = await api("/api/grammar");
+  if(!rules) return;
+  State.gmRules = rules;
+  const idx = rules.findIndex(r=>r.id===ruleId);
+  State.gmIndex = idx>=0?idx:0; State.gmXP = 0;
+  $("grammarList").style.display="none";
+  $("grammarStepsPanel").style.display="none";
+  document.querySelector(".grammar-tabs").style.display="none";
+  $("grammarLessonMode").style.display="block";
+  gmShowRule(State.gmIndex);
+}
+
+function exitGrammarLesson(){
+  $("grammarList").style.display="";
+  $("grammarStepsPanel").style.display="";
+  document.querySelector(".grammar-tabs").style.display="";
+  $("grammarLessonMode").style.display="none";
+  loadGrammar();
+}
+
+function gmShowRule(idx){
+  const rules = State.gmRules;
+  if(idx>=rules.length){ gmFinishAll(); return; }
+  State.gmIndex = idx;
+  const r = rules[idx];
+  State.currentGrammarItem = r;
+  const pct = Math.round(idx/rules.length*100);
+  $("gmProgFill").style.width = pct+"%";
+  $("gmProgLabel").textContent = `${idx+1} / ${rules.length}`;
+  $("gmXPLabel").textContent = `+${State.gmXP} XP`;
+  $("gmTitle").textContent = r.title;
+  $("gmContent").innerHTML = (r.content||"").replace(/\n/g,"<br>");
+  let ex=[]; try{ ex=JSON.parse(r.examples_json||"[]"); }catch(e){}
+  $("gmTitleEx").textContent = r.title;
+  $("gmExamplesList").innerHTML = ex.map(e=>`
+    <div class="gm-example-item">
+      <div class="gm-ex-ru">🇷🇺 ${e.ru}</div>
+      ${e.uz?`<div class="gm-ex-uz">🇺🇿 ${e.uz}</div>`:""}
+    </div>`).join("") || `<p class="muted">Misollar yo'q</p>`;
+  $("gmTitleEx2").textContent = r.title;
+  State.gmCurrentExIndex = 0; State.gmCurrentExAnswers = [];
+  let exs=[]; try{ exs=JSON.parse(r.exercises_json||"[]"); }catch(e){}
+  gmRenderExercise(exs);
+  gmNextStep("explain");
+}
+
+function gmNextStep(step){
+  ["explain","examples","exercise"].forEach(s=>{
+    const el=$(`gmStep${s.charAt(0).toUpperCase()+s.slice(1)}`);
+    if(el) el.style.display = s===step?"block":"none";
+  });
+  if(step==="exercise"){
+    const r = State.gmRules[State.gmIndex];
+    let exs=[]; try{ exs=JSON.parse(r.exercises_json||"[]"); }catch(e){}
+    if(!exs.length) gmCompleteRule(true);
+  }
+}
+
+function gmRenderExercise(exs){
+  const area=$("gmExerciseArea");
+  $("gmExResult").style.display="none";
+  if(!exs||!exs.length){
+    area.innerHTML=`<div class="empty-state"><p>Bu qoida uchun mashq yo'q</p></div>`;
+    $("gmExButtons").innerHTML=`<button class="btn btn-primary btn-lg" onclick="gmCompleteRule(true)">Keyingi qoida →</button>`;
+    return;
+  }
+  area.innerHTML = exs.map((q,i)=>`
+    <div class="gm-q-item" id="gmQ-${i}">
+      <div class="gm-q-text">${i+1}. ${q.q}</div>
+      ${q.options?`<div class="gm-choices">${q.options.map(o=>`
+        <button class="gm-choice" data-qi="${i}" data-val="${o}"
+          onclick="gmSelectChoice(this,${i},'${o.replace(/'/g,"\\'")}')">${o}</button>`).join("")}</div>`
+      :`<input class="form-input gm-text-input" id="gmInp-${i}" placeholder="Javobingizni yozing..."
+         onkeydown="if(event.key==='Enter')gmCheckExercise()">`}
+    </div>`).join("");
+  $("gmExButtons").innerHTML=`<button class="btn btn-primary btn-lg" id="gmCheckBtn" onclick="gmCheckExercise()">✅ Tekshirish</button>`;
+  State.gmCurrentExAnswers = new Array(exs.length).fill(null);
+}
+
+function gmSelectChoice(btn, qi, val){
+  document.querySelectorAll(`.gm-choice[data-qi="${qi}"]`).forEach(b=>b.classList.remove("selected"));
+  btn.classList.add("selected");
+  State.gmCurrentExAnswers[qi] = val;
+}
+
+function gmCheckExercise(){
+  const r = State.gmRules[State.gmIndex];
+  let exs=[]; try{ exs=JSON.parse(r.exercises_json||"[]"); }catch(e){}
+  if(!exs.length){ gmCompleteRule(true); return; }
+  let correct=0;
+  exs.forEach((q,i)=>{
+    const given = q.options ? State.gmCurrentExAnswers[i] : ($(`gmInp-${i}`)?.value||"").trim();
+    const ok = (given||"").toLowerCase()===(q.a||"").toLowerCase();
+    if(ok) correct++;
+    if(q.options){
+      document.querySelectorAll(`.gm-choice[data-qi="${i}"]`).forEach(b=>{
+        b.disabled=true;
+        if(b.dataset.val===q.a) b.classList.add("correct");
+        else if(b.classList.contains("selected")) b.classList.add("wrong");
+      });
+    } else {
+      const inp=$(`gmInp-${i}`);
+      if(inp){ inp.disabled=true; inp.style.borderColor=ok?"var(--green)":"var(--red)"; }
+      const hint=document.createElement("div");
+      hint.style.cssText="font-size:12px;margin-top:4px;";
+      hint.style.color=ok?"var(--green)":"var(--red)";
+      hint.textContent=ok?"✅ To'g'ri!":"❌ To'g'ri: "+q.a;
+      $(`gmQ-${i}`)?.appendChild(hint);
+    }
+  });
+  const pct=Math.round(correct/exs.length*100);
+  const xpEarned=correct*15;
+  State.gmXP+=xpEarned;
+  $("gmXPLabel").textContent=`+${State.gmXP} XP`;
+  $("gmExResult").style.display="block";
+  $("gmExResult").innerHTML=`
+    <div class="gm-result-bar ${pct>=60?"success":"retry"}">
+      <span>${pct>=90?"🏆":pct>=60?"✅":"😅"}</span>
+      <span>${correct}/${exs.length} to'g'ri (${pct}%)</span>
+      <span style="color:var(--yellow)">+${xpEarned} XP</span>
+    </div>`;
+  $("gmExButtons").innerHTML=`
+    ${pct<60?`<button class="btn btn-ghost btn-lg" onclick="retryGmExercise()">🔄 Qayta urinish</button>`:""}
+    <button class="btn btn-primary btn-lg" onclick="gmCompleteRule(${pct>=60})">
+      ${State.gmIndex<State.gmRules.length-1?"Keyingi qoida →":"🏁 Tugatish"}
+    </button>`;
+}
+
+function retryGmExercise(){
+  const r=State.gmRules[State.gmIndex];
+  let exs=[]; try{ exs=JSON.parse(r.exercises_json||"[]"); }catch(e){}
+  gmRenderExercise(exs); gmNextStep("exercise");
+}
+
+async function gmCompleteRule(passed){
+  if(passed&&State.gmXP>0){
+    await api("/api/history",{method:"POST",body:JSON.stringify({
+      lesson_type:"grammar",duration_sec:120,score:passed?100:50,
+      xp_earned:State.gmXP,details:{rule:State.currentGrammarItem?.title}
+    })});
+    await loadProfile();
+  }
+  const next=State.gmIndex+1;
+  if(next>=State.gmRules.length){ gmFinishAll(); return; }
+  State.gmXP=0; gmShowRule(next);
+}
+
+function gmFinishAll(){
+  const gml=$("grammarLessonMode");
+  if(gml) gml.innerHTML=`
+    <div style="text-align:center;padding:48px 16px">
+      <div style="font-size:64px;margin-bottom:16px">🎓</div>
+      <h2 style="margin-bottom:8px">Barcha grammatika qoidalari tugadi!</h2>
+      <p style="color:var(--text2);margin-bottom:24px">
+        Siz ${State.gmRules.length} ta qoidani o'rgandingiz. Ajoyib natija!
+      </p>
+      <button class="btn btn-primary btn-lg" onclick="exitGrammarLesson()">📝 Grammatikaga qaytish</button>
+      <button class="btn btn-ghost btn-lg" style="margin-left:8px" onclick="navigate('quiz')">❓ Test ishlash</button>
+    </div>`;
+}
+
+
+// ══════════════════════════════════════════════════
+// KATEGORIYA PANELI VA TEST (numbers va boshqalar)
+// ══════════════════════════════════════════════════
+const CAT_META = {
+  numbers:    { icon:"🔢", label:"Raqamlar",      desc:"1 dan 100 000 gacha" },
+  greeting:   { icon:"👋", label:"Salomlashish",  desc:"Kundalik muloqot" },
+  colors:     { icon:"🎨", label:"Ranglar",        desc:"Asosiy ranglar" },
+  family:     { icon:"👨‍👩‍👧", label:"Oila",          desc:"Oila a'zolari" },
+  food:       { icon:"🍎", label:"Oziq-ovqat",     desc:"Taom va ichimlik" },
+  verbs:      { icon:"⚡", label:"Fe'llar",        desc:"Harakat so'zlari" },
+  adjectives: { icon:"🌟", label:"Sifatlar",       desc:"Tavsif so'zlari" },
+  travel:     { icon:"✈️", label:"Sayohat",        desc:"Yo'l va manzil" },
+  work:       { icon:"💼", label:"Ish",            desc:"Kasb va mehnat" },
+  health:     { icon:"🏥", label:"Sog'liq",        desc:"Tana va davo" },
+  nature:     { icon:"🌿", label:"Tabiat",         desc:"O'simlik va hayvon" },
+  time:       { icon:"⏰", label:"Vaqt",           desc:"Soat va kun" },
+  emotions:   { icon:"😊", label:"His-tuyg'ular",  desc:"Kayfiyat va his" },
+  general:    { icon:"📦", label:"Umumiy",         desc:"Boshqa so'zlar" },
+};
+
+async function loadCategoryPanel(){
+  const cats = await api("/api/words/categories");
+  if(!cats) return;
+  const grid = $("catGrid");
+  if(!grid) return;
+
+  const catData = await Promise.all(cats.map(async cat=>{
+    const words = await api(`/api/words?category=${cat}&limit=200`);
+    const total = (words||[]).length;
+    const learned = (words||[]).filter(w=>(w.times_correct||0)>0).length;
+    return { cat, total, learned, pct: total>0?Math.round(learned/total*100):0 };
+  }));
+
+  grid.innerHTML = catData.map(d=>{
+    const m = CAT_META[d.cat]||{icon:"📦",label:d.cat,desc:""};
+    const pct = d.pct;
+    const barColor = pct>=80?"var(--green)":pct>=40?"var(--yellow)":"var(--accent)";
+    return `<div class="cat-card" onclick="selectCategory('${d.cat}')">
+      <div class="cat-card-icon">${m.icon}</div>
+      <div class="cat-card-info">
+        <div class="cat-card-name">${m.label}</div>
+        <div class="cat-card-desc">${m.desc}</div>
+        <div class="cat-progress-wrap">
+          <div class="cat-progress-bar" style="width:${pct}%;background:${barColor}"></div>
+        </div>
+        <div class="cat-progress-label">${d.learned}/${d.total} o'rganilgan (${pct}%)</div>
+      </div>
+      <div class="cat-card-actions">
+        <button class="btn btn-sm btn-primary" onclick="event.stopPropagation();selectCategoryAndTest('${d.cat}')">🧪 Test</button>
+      </div>
+    </div>`;
+  }).join("");
+}
+
+function selectCategory(cat){
+  const sel = $("wordCatFilter");
+  if(sel){ sel.value = cat; }
+  State.wordOffset = 0;
+  loadVocabulary();
+  // Test banner ko'rsatish
+  const m = CAT_META[cat]||{icon:"📦",label:cat};
+  $("catTestInfo").innerHTML=`<span>${m.icon} <b>${m.label}</b> kategoriyasi tanlandi</span>`;
+  $("catTestBanner").style.display="flex";
+  State.catTest.cat = cat;
+}
+
+function selectCategoryAndTest(cat){
+  State.catTest.cat = cat;
+  startCatTest();
+}
+
+function onCatFilterChange(){
+  const cat = $("wordCatFilter")?.value||"";
+  if(cat){ selectCategory(cat); }
+  else { hideCatBanner(); loadVocabulary(); }
+}
+
+function hideCatBanner(){
+  $("catTestBanner").style.display="none";
+}
+
+async function startCatTest(){
+  const cat = State.catTest.cat || $("wordCatFilter")?.value||"";
+  if(!cat){ toast("Avval kategoriya tanlang","warn"); return; }
+
+  const words = await api(`/api/words?category=${cat}&limit=200`);
+  if(!words||words.length<4){ toast("Kamida 4 ta so'z kerak","warn"); return; }
+
+  State.catTest = {
+    cat, words: words.sort(()=>Math.random()-0.5).slice(0,Math.min(15,words.length)),
+    index:0, score:0, answers:[], start:Date.now()
+  };
+
+  // Raqamlar kategoriyasi uchun maxsus test
+  if(cat==="numbers") return startNumbersTest(words);
+
+  $("wordGrid").style.display="none";
+  $("wordCount").style.display="none";
+  $("catTestBanner").style.display="none";
+  $("catPanel").style.display="none";
+  $("catTestArea").style.display="block";
+  $("catTestResult").style.display="none";
+
+  const m = CAT_META[cat]||{label:cat};
+  $("catTestTitle").textContent=`${m.icon||"📦"} ${m.label} — Test`;
+  showCatQuestion();
+}
+
+function showCatQuestion(){
+  const {words,index} = State.catTest;
+  if(index>=words.length){ endCatTest(); return; }
+
+  const pct = Math.round(index/words.length*100);
+  $("catProgFill").style.width=pct+"%";
+  $("catProgLabel").textContent=`${index+1}/${words.length}`;
+
+  const w = words[index];
+  const wrong = words.filter(x=>x.id!==w.id).sort(()=>Math.random()-0.5).slice(0,3).map(x=>x.uzbek);
+  const opts = [...wrong, w.uzbek].sort(()=>Math.random()-0.5);
+
+  $("catTestContent").innerHTML=`
+    <div class="cat-q-card">
+      <div class="cat-q-word">${w.russian}</div>
+      ${w.pronunciation?`<div class="cat-q-pron">🔊 ${w.pronunciation}</div>`:""}
+      <div class="cat-q-label">O'zbekcha tarjimasi qaysi?</div>
+      <div class="cat-choices">
+        ${opts.map(o=>`<button class="quiz-choice cat-choice" onclick="answerCatQuestion(this,'${o.replace(/'/g,"\\'")}','${w.uzbek.replace(/'/g,"\\'")}',${w.id})">${o}</button>`).join("")}
+      </div>
+    </div>`;
+}
+
+function answerCatQuestion(btn, chosen, correct, wid){
+  document.querySelectorAll(".cat-choice").forEach(b=>b.disabled=true);
+  const ok = chosen===correct;
+  btn.classList.add(ok?"correct":"wrong");
+  if(!ok) document.querySelectorAll(".cat-choice").forEach(b=>{ if(b.textContent===correct) b.classList.add("correct"); });
+  if(ok){ State.catTest.score+=10; api(`/api/words/${wid}/review`,{method:"POST",body:JSON.stringify({correct:true})}); }
+  State.catTest.answers.push({chosen,correct,ok});
+  setTimeout(()=>{ State.catTest.index++; showCatQuestion(); }, 1200);
+}
+
+async function endCatTest(){
+  const {score,answers,start,words,cat}=State.catTest;
+  const correct=answers.filter(a=>a.ok).length;
+  const total=answers.length;
+  const pct=total>0?Math.round(correct/total*100):0;
+  const elapsed=Math.round((Date.now()-start)/1000);
+  const emoji=pct>=90?"🏆":pct>=70?"🎉":pct>=50?"😊":"😅";
+
+  await api("/api/history",{method:"POST",body:JSON.stringify({
+    lesson_type:"quiz",duration_sec:elapsed,score:pct,xp_earned:score,
+    details:{category:cat,correct,total}
+  })});
+  await loadProfile();
+
+  $("catTestContent").innerHTML="";
+  $("catResultEmoji").textContent=emoji;
+  $("catResultScore").textContent=`${score} ball — ${pct}%`;
+  const m=CAT_META[cat]||{label:cat};
+  $("catResultDetails").innerHTML=`
+    <p style="color:var(--text2)">${m.icon||"📦"} ${m.label} kategoriyasi</p>
+    <p>✅ ${correct} to'g'ri · ❌ ${total-correct} noto'g'ri · ⏱ ${secToMin(elapsed)}</p>
+    ${pct<70?`<p style="color:var(--yellow);margin-top:8px">💡 Maslahat: Kartochkalar bilan ko'proq mashq qiling!</p>`:""}`;
+  $("catTestResult").style.display="block";
+  toast(`🎉 ${score} XP qo'shildi!`,"success");
+}
+
+function closeCatTest(){
+  $("catTestArea").style.display="none";
+  $("wordGrid").style.display="";
+  $("wordCount").style.display="";
+  $("catPanel").style.display="";
+  loadVocabulary();
+}
+
+
+// ══════════════════════════════════════════════════
+// RAQAMLAR MAXSUS TEST (1 - 100 000)
+// ══════════════════════════════════════════════════
+function startNumbersTest(allWords){
+  const nums = allWords.sort(()=>Math.random()-0.5).slice(0,15);
+  State.catTest = { ...State.catTest, words:nums, index:0, score:0, answers:[], start:Date.now() };
+
+  $("wordGrid").style.display="none";
+  $("wordCount").style.display="none";
+  $("catTestBanner").style.display="none";
+  $("catPanel").style.display="none";
+  $("catTestArea").style.display="block";
+  $("catTestResult").style.display="none";
+  $("catTestTitle").textContent="🔢 Raqamlar testi";
+
+  showNumbersQuestion();
+}
+
+function showNumbersQuestion(){
+  const {words,index}=State.catTest;
+  if(index>=words.length){ endCatTest(); return; }
+
+  const pct=Math.round(index/words.length*100);
+  $("catProgFill").style.width=pct+"%";
+  $("catProgLabel").textContent=`${index+1}/${words.length}`;
+
+  const w=words[index];
+  // Random: 50% ru→uz, 50% uz→ru
+  const mode = Math.random()<0.5?"ru_uz":"uz_ru";
+  const question = mode==="ru_uz" ? w.russian : w.uzbek;
+  const correctAns = mode==="ru_uz" ? w.uzbek : w.russian;
+  const wrong = words.filter(x=>x.id!==w.id).sort(()=>Math.random()-0.5).slice(0,3)
+    .map(x=>mode==="ru_uz"?x.uzbek:x.russian);
+  const opts=[...wrong,correctAns].sort(()=>Math.random()-0.5);
+
+  $("catTestContent").innerHTML=`
+    <div class="cat-q-card">
+      <div class="cat-q-label" style="font-size:12px;margin-bottom:4px">
+        ${mode==="ru_uz"?"🇷🇺 Ruscha → 🇺🇿 O'zbekcha":"🇺🇿 O'zbekcha → 🇷🇺 Ruscha"}
+      </div>
+      <div class="cat-q-word num-word">${question}</div>
+      ${w.pronunciation&&mode==="ru_uz"?`<div class="cat-q-pron">🔊 ${w.pronunciation}</div>`:""}
+      <div class="cat-q-label">To'g'ri javobni tanlang:</div>
+      <div class="cat-choices">
+        ${opts.map(o=>`<button class="quiz-choice cat-choice"
+          onclick="answerCatQuestion(this,'${o.replace(/'/g,"\\'")}','${correctAns.replace(/'/g,"\\'")}',${w.id})">${o}</button>`).join("")}
+      </div>
+    </div>`;
+}
+
+// loadVocabulary ga kategoriya panelini qo'shish uchun patch
+const _origLoadVocabulary = loadVocabulary;
+async function loadVocabulary(){
+  await _origLoadVocabulary();
+  await loadCategoryPanel();
+}

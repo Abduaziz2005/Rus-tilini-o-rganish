@@ -294,6 +294,15 @@ class Database:
         if cnt < 10:
             self._insert_starter_words()
             self._insert_grammar_rules()
+        # Grammatika qoidalarini yangilash (yangi bosqichlar qo'shilsa)
+        gr_cnt = self.conn.execute("SELECT COUNT(*) as c FROM grammar_rules").fetchone()["c"]
+        if gr_cnt < 14:
+            self._insert_grammar_rules()
+        # Raqamlar to'liq ro'yxati (agar yo'q bo'lsa)
+        num_cnt = self.conn.execute(
+            "SELECT COUNT(*) as c FROM words WHERE category='numbers'").fetchone()["c"]
+        if num_cnt < 30:
+            self._insert_numbers_words()
 
     def _insert_starter_words(self):
         words = [
@@ -370,10 +379,69 @@ class Database:
                 VALUES(?,?,?,?,?,?,?)""", w)
         self.conn.commit()
 
+    def _insert_numbers_words(self):
+        """Raqamlar: 1-20, o'nliklar, yuzliklar, mingliklar"""
+        nums = [
+            # 1-10
+            ("Один","Bir","a-DEEN","numbers","beginner","Один плюс один = два.","Bir + bir = ikki."),
+            ("Два","Ikki","dva","numbers","beginner","Два яблока.","Ikki olma."),
+            ("Три","Uch","tree","numbers","beginner","Три кошки.","Uch mushuk."),
+            ("Четыре","To'rt","chye-TYE-rye","numbers","beginner","Четыре урока.","To'rt dars."),
+            ("Пять","Besh","pyat'","numbers","beginner","Пять минут.","Besh daqiqa."),
+            ("Шесть","Olti","shest'","numbers","beginner","Шесть часов.","Olti soat."),
+            ("Семь","Yetti","syem'","numbers","beginner","Семь дней.","Yetti kun."),
+            ("Восемь","Sakkiz","VO-syem'","numbers","beginner","Восемь букв.","Sakkiz harf."),
+            ("Девять","To'qqiz","DYE-vyat'","numbers","beginner","Девять месяцев.","To'qqiz oy."),
+            ("Десять","O'n","DYE-syat'","numbers","beginner","Десять рублей.","O'n so'm."),
+            # 11-20
+            ("Одиннадцать","O'n bir","a-DEEN-nat-tsat'","numbers","beginner","Ему одиннадцать лет.","Unga o'n bir yosh."),
+            ("Двенадцать","O'n ikki","dvye-NAT-tsat'","numbers","beginner","Двенадцать месяцев в году.","Yilda o'n ikki oy."),
+            ("Тринадцать","O'n uch","tree-NAT-tsat'","numbers","beginner","Тринадцатый этаж.","O'n uchinchi qavat."),
+            ("Четырнадцать","O'n to'rt","chye-TYR-nat-tsat'","numbers","beginner","Четырнадцать дней.","O'n to'rt kun."),
+            ("Пятнадцать","O'n besh","pyat-NAT-tsat'","numbers","beginner","Пятнадцать минут.","O'n besh daqiqa."),
+            ("Шестнадцать","O'n olti","shes-NAT-tsat'","numbers","beginner","Шестнадцать лет.","O'n olti yosh."),
+            ("Семнадцать","O'n yetti","syem-NAT-tsat'","numbers","beginner","Семнадцать студентов.","O'n yetti talaba."),
+            ("Восемнадцать","O'n sakkiz","va-syem-NAT-tsat'","numbers","beginner","Восемнадцать часов.","O'n sakkiz soat."),
+            ("Девятнадцать","O'n to'qqiz","dye-vyat-NAT-tsat'","numbers","beginner","Девятнадцатый век.","O'n to'qqizinchi asr."),
+            ("Двадцать","Yigirma","DVAT-tsat'","numbers","beginner","Двадцать рублей.","Yigirma so'm."),
+            # O'nliklar
+            ("Тридцать","O'ttiz","TREE-tsat'","numbers","intermediate","Тридцать дней.","O'ttiz kun."),
+            ("Сорок","Qirq","SO-rak","numbers","intermediate","Сорок минут.","Qirq daqiqa."),
+            ("Пятьдесят","Ellik","pyat'-dye-SYAT","numbers","intermediate","Пятьдесят процентов.","Ellik foiz."),
+            ("Шестьдесят","Oltmish","shest'-dye-SYAT","numbers","intermediate","Шестьдесят секунд.","Oltmish soniya."),
+            ("Семьдесят","Yetmish","SYEM'-dye-syat","numbers","intermediate","Семьдесят лет.","Yetmish yosh."),
+            ("Восемьдесят","Sakson","VO-syem'-dye-syat","numbers","intermediate","Восемьдесят килограммов.","Sakson kilogramm."),
+            ("Девяносто","To'qson","dye-vya-NOS-ta","numbers","intermediate","Девяносто дней.","To'qson kun."),
+            ("Сто","Yuz","sto","numbers","intermediate","Сто рублей.","Yuz so'm."),
+            # Yuzliklar
+            ("Двести","Ikki yuz","DVYE-styi","numbers","intermediate","Двести грамм.","Ikki yuz gramm."),
+            ("Триста","Uch yuz","TREE-sta","numbers","intermediate","Триста рублей.","Uch yuz so'm."),
+            ("Четыреста","To'rt yuz","chye-TY-ryes-ta","numbers","intermediate","Четыреста метров.","To'rt yuz metr."),
+            ("Пятьсот","Besh yuz","pyat'-SOT","numbers","intermediate","Пятьсот граммов.","Besh yuz gramm."),
+            ("Шестьсот","Olti yuz","shest'-SOT","numbers","intermediate","Шестьсот рублей.","Olti yuz so'm."),
+            ("Семьсот","Yetti yuz","syem'-SOT","numbers","intermediate","Семьсот метров.","Yetti yuz metr."),
+            ("Восемьсот","Sakkiz yuz","va-syem'-SOT","numbers","intermediate","Восемьсот лет.","Sakkiz yuz yil."),
+            ("Девятьсот","To'qqiz yuz","dye-vyat'-SOT","numbers","intermediate","Девятьсот граммов.","To'qqiz yuz gramm."),
+            ("Тысяча","Bir ming","TY-sya-cha","numbers","intermediate","Тысяча рублей.","Bir ming so'm."),
+            ("Десять тысяч","O'n ming","DYE-syat' TY-syach","numbers","advanced","Десять тысяч человек.","O'n ming kishi."),
+            ("Сто тысяч","Yuz ming","sto TY-syach","numbers","advanced","Сто тысяч рублей.","Yuz ming so'm."),
+        ]
+        for w in nums:
+            self.conn.execute("""INSERT OR IGNORE INTO words
+                (russian,uzbek,pronunciation,category,level,example_ru,example_uz)
+                VALUES(?,?,?,?,?,?,?)""", w)
+        self.conn.commit()
+
     def _insert_grammar_rules(self):
         rules = [
-            ("Rus alifbosi (Кириллица)", "beginner", "alphabet",
-             "Rus tilida 33 ta harf bor. Ularning 10 tasi unli, 21 tasi undosh, 2 tasi belgi harflar.",
+            # ── 1-BOSQICH: ALIFBO VA FONETIKA ──────────────
+            ("1-bosqich: Rus alifbosi (Алфавит)", "beginner", "alphabet",
+             "Rus tilida 33 ta harf bor: 10 unli, 21 undosh, 2 belgi (Ъ, Ь).\n\n"
+             "UNLILAR: А Э И О У — Я Е Ё Ю — bu ikkinchi qator yumshoq variantlar.\n"
+             "UNDOSHLAR: Б В Г Д Ж З К Л М Н П Р С Т Ф Х Ц Ч Ш Щ\n"
+             "BELGILAR: Ъ (qattiqlik belgisi) — Ь (yumshoqlik belgisi)\n\n"
+             "TALAFFUZ QOIDASI: О harfi urg'usiz bo'g'inda 'А' kabi talaffuz qilinadi!\n"
+             "Masalan: молоко = ma-la-KO (faqat oxirgi O urg'uli, qolganlari A kabi)",
              json.dumps([
                  {"ru": "А а — 'a' tovushi (ayna kabi)", "uz": "А — olma kabi"},
                  {"ru": "Б б — 'b' tovushi", "uz": "Б — b harfi"},
@@ -385,61 +453,262 @@ class Database:
                  {"q": "'А' harfi qanday o'qiladi?", "a": "a", "type": "text"},
              ])
             ),
-            ("Ismlar — Nominativ kelishigi", "beginner", "nouns",
-             "Rus tilida otlarning 3 ta jins (rod) bor: erkak (мужской), ayol (женский), o'rta (средний). "
-             "Erkak jins: -й, -ь yoki undosh bilan tugaydi. Ayol jins: -а, -я bilan tugaydi. "
-             "O'rta jins: -о, -е bilan tugaydi.",
+            # ── 2-BOSQICH: OT TURKUMI ──────────────────────
+            ("2-bosqich: Otlar jinsi (Род существительных)", "beginner", "nouns",
+             "Rus tilida otlarning 3 ta jinsi bor:\n\n"
+             "ERKAK JINS (мужской род) — undosh, -й yoki -ь bilan tugaydi:\n"
+             "  стол (stol), журнал (jurnal), словарь (lug'at)\n\n"
+             "AYOL JINS (женский род) — -а yoki -я bilan tugaydi:\n"
+             "  книга (kitob), семья (oila), тетрадь (daftar — istisno!)\n\n"
+             "O'RTA JINS (средний род) — -о yoki -е bilan tugaydi:\n"
+             "  окно (deraza), море (dengiz), здание (bino)\n\n"
+             "KO'PLIK: +ы/и qo'shimchasi: стол→столы, книга→книги, окно→окна",
              json.dumps([
-                 {"ru": "стол (erkak) — stol", "uz": "undosh bilan tugaydi → erkak jins"},
-                 {"ru": "книга (ayol) — kitob", "uz": "-а bilan tugaydi → ayol jins"},
-                 {"ru": "окно (o'rta) — deraza", "uz": "-о bilan tugaydi → o'rta jins"},
+                 {"ru": "стол — столы (erkak → ko'plik +ы)", "uz": "stol — stollar"},
+                 {"ru": "книга — книги (ayol → ko'plik +и)", "uz": "kitob — kitoblar"},
+                 {"ru": "окно — окна (o'rta → ko'plik +а)", "uz": "deraza — derazalar"},
+                 {"ru": "Это мой стол. — Bu mening stolim. (erkak: мой)", "uz": "erkak jins bilan мой"},
+                 {"ru": "Это моя книга. — Bu mening kitobim. (ayol: моя)", "uz": "ayol jins bilan моя"},
              ]),
              json.dumps([
-                 {"q": "'Книга' qaysi jinsga mansub?", "a": "ayol jins", "type": "choice",
+                 {"q": "'Стол' qaysi jinsga mansub?", "a": "erkak jins", "type": "choice",
                   "options": ["erkak jins", "ayol jins", "o'rta jins"]},
+                 {"q": "'Книга' so'zining ko'plik shakli?", "a": "книги", "type": "choice",
+                  "options": ["книгы", "книги", "книга", "книгей"]},
+                 {"q": "'Окно' qaysi jinsga mansub?", "a": "o'rta jins", "type": "choice",
+                  "options": ["erkak jins", "ayol jins", "o'rta jins"]},
+                 {"q": "Ayol jins otlari qanday qo'shimcha bilan tugaydi?", "a": "-а/-я", "type": "choice",
+                  "options": ["-а/-я", "-о/-е", "-й/-ь", "-ый"]},
              ])
             ),
-            ("Fe'llar — Hozirgi zamon", "beginner", "verbs",
-             "Rus tilida fe'llar ikkita spryajeniyaga (tuslanish) bo'linadi. "
-             "1-spryajeniye: -ю/-у, -ешь/-ёшь, -ет/-ёт, -ем/-ём, -ете/-ёте, -ют/-ут. "
-             "2-spryajeniye: -ю/-у, -ишь, -ит, -им, -ите, -ят/-ат.",
+            ("2-bosqich: Jonli va jonsiz otlar (Одушевлённые)", "beginner", "nouns",
+             "Rus tilida otlar JONLI va JONSIZ bo'linadi.\n\n"
+             "JONLI OTLAR (одушевлённые) — KIM? (КТО?) deb so'raladi:\n"
+             "  человек (inson), кошка (mushuk), студент (talaba)\n\n"
+             "JONSIZ OTLAR (неодушевлённые) — NIMA? (ЧТО?) deb so'raladi:\n"
+             "  стол (stol), книга (kitob), машина (mashina)\n\n"
+             "AHAMIYATI: Bu bo'linish kelishiklarni ishlatishga ta'sir qiladi!",
              json.dumps([
-                 {"ru": "Я читаю — Men o'qiyapman", "uz": "читать → 1-spryajeniye"},
-                 {"ru": "Ты читаешь — Sen o'qiyapsan", "uz": "-ешь qo'shimchasi"},
-                 {"ru": "Он/она читает — U o'qiyapti", "uz": "-ет qo'shimchasi"},
-                 {"ru": "Я говорю — Men gapiryapman", "uz": "говорить → 2-spryajeniye"},
-                 {"ru": "Ты говоришь — Sen gapiryapsan", "uz": "-ишь qo'shimchasi"},
+                 {"ru": "Кто это? — Это студент. (JONLI)", "uz": "Kim bu? — Bu talaba."},
+                 {"ru": "Что это? — Это книга. (JONSIZ)", "uz": "Nima bu? — Bu kitob."},
+                 {"ru": "Я вижу кошку. (jonli — тушум kelishigi: кошку)", "uz": "Men mushukni ko'ryapman."},
+                 {"ru": "Я вижу стол. (jonsiz — тушум kelishigi: стол)", "uz": "Men stolni ko'ryapman."},
              ]),
              json.dumps([
-                 {"q": "'Читать' fe'lining 'Я' shakli qanday?", "a": "читаю",
-                  "type": "choice", "options": ["читаю", "читаешь", "читает"]},
+                 {"q": "'Собака' (it) jonli yoki jonsiz?", "a": "jonli", "type": "choice",
+                  "options": ["jonli", "jonsiz"]},
+                 {"q": "'Книга' uchun qaysi so'roq ishlatiladi?", "a": "Что?", "type": "choice",
+                  "options": ["Кто?", "Что?", "Где?", "Когда?"]},
              ])
             ),
-            ("Sifatlar — Kelishish (Согласование)", "intermediate", "adjectives",
-             "Rus tilida sifatlar ot bilan jins, son va kelishik bo'yicha moslashadi. "
-             "Erkak: -ый/-ий/-ой. Ayol: -ая/-яя. O'rta: -ое/-ее. Ko'plik: -ые/-ие.",
+            # ── 3-BOSQICH: OLMOSHLAR ───────────────────────
+            # ── 3-BOSQICH: OLMOSHLAR ───────────────────────
+            ("3-bosqich: Kishilik olmoshlari (Личные местоимения)", "beginner", "pronouns",
+             "Kishilik olmoshlari — gapning asosi:\n\n"
+             "  Я — men        МЫ — biz\n"
+             "  ТЫ — sen       ВЫ — siz (rasmiy yoki ko'plik)\n"
+             "  ОН — u (erkak) ОНИ — ular\n"
+             "  ОНА — u (ayol)\n"
+             "  ОНО — u (narsalar)\n\n"
+             "EGALIK OLMOSHLARI (jinsga qarab o'zgaradi):\n"
+             "  erkak jins: МОЙ стол, ТВОЙ дом, НАШ город\n"
+             "  ayol jins:  МОЯ книга, ТВОЯ машина, НАША семья\n"
+             "  o'rta jins: МОЁ окно, ТВОЁ имя, НАШЕ здание\n"
+             "  ko'plik:    МОИ друзья, ТВОИ книги, НАШИ дети",
              json.dumps([
-                 {"ru": "красный стол (erkak)", "uz": "qizil stol"},
-                 {"ru": "красная книга (ayol)", "uz": "qizil kitob"},
-                 {"ru": "красное яблоко (o'rta)", "uz": "qizil olma"},
-                 {"ru": "красные цветы (ko'plik)", "uz": "qizil gullar"},
+                 {"ru": "Я студент. — Men talabaman.", "uz": "Я = men"},
+                 {"ru": "Ты мой друг. — Sen mening do'stimsan.", "uz": "Ты = sen, МОЙ = mening (erkak)"},
+                 {"ru": "Она моя сестра. — U mening opam.", "uz": "ОНА = u (ayol), МОЯ = mening (ayol)"},
+                 {"ru": "Мы учимся. — Biz o'rganamiz.", "uz": "МЫ = biz"},
+                 {"ru": "Наш дом большой. — Bizning uyimiz katta.", "uz": "НАШ = bizning (erkak)"},
              ]),
              json.dumps([
-                 {"q": "'Синий' sifatining ayol jins shakli?", "a": "синяя",
-                  "type": "choice", "options": ["синий", "синяя", "синее", "синие"]},
+                 {"q": "'Men' olmoshi rus tilida?", "a": "Я", "type": "choice",
+                  "options": ["Я", "Ты", "Он", "Мы"]},
+                 {"q": "'Mening kitobim' — kitob ayol jins (моя/мой/моё?)", "a": "моя книга", "type": "choice",
+                  "options": ["мой книга", "моя книга", "моё книга", "мои книга"]},
+                 {"q": "'Ular' olmoshi rus tilida?", "a": "Они", "type": "choice",
+                  "options": ["Мы", "Вы", "Они", "Оно"]},
              ])
             ),
-            ("Olmoshlar (Местоимения)", "beginner", "pronouns",
-             "Shaxs olmoshlari: Я (men), Ты (sen), Он (u — erkak), Она (u — ayol), "
-             "Оно (u — narsalar), Мы (biz), Вы (siz/sizlar), Они (ular).",
+            ("3-bosqich: Ko'rsatkich olmoshlari (Указательные)", "beginner", "pronouns",
+             "Ko'rsatkich olmoshlari — 'bu' va 'o'sha' ma'nosida:\n\n"
+             "BU (yaqin): ЭТОТ (erkak), ЭТА (ayol), ЭТО (o'rta), ЭТИ (ko'plik)\n"
+             "O'SHA (uzoq): ТОТ (erkak), ТА (ayol), ТО (o'rta), ТЕ (ko'plik)\n\n"
+             "QOIDA: Ko'rsatkich olmoshi ham otning jinsi bilan moslashadi!\n\n"
+             "MUHIM: ЧТО ЭТО? — Bu nima? Eng ko'p ishlatiladigan ibora!",
              json.dumps([
-                 {"ru": "Я студент. — Men talabaman.", "uz": "Я — men"},
-                 {"ru": "Ты говоришь по-русски. — Sen rus tilida gapirasan.", "uz": "Ты — sen"},
-                 {"ru": "Мы учимся вместе. — Biz birga o'rganamiz.", "uz": "Мы — biz"},
+                 {"ru": "Этот стол большой. — Bu stol katta. (erkak: этот)", "uz": "ЭТОТ = bu (erkak)"},
+                 {"ru": "Эта книга интересная. — Bu kitob qiziq. (ayol: эта)", "uz": "ЭТА = bu (ayol)"},
+                 {"ru": "Это окно чистое. — Bu deraza toza. (o'rta: это)", "uz": "ЭТО = bu (o'rta)"},
+                 {"ru": "Эти студенты умные. — Bu talabalar aqlli. (ko'plik: эти)", "uz": "ЭТИ = bu (ko'plik)"},
              ]),
              json.dumps([
-                 {"q": "'Biz' olmoshi rus tilida?", "a": "Мы",
-                  "type": "choice", "options": ["Я", "Ты", "Мы", "Вы"]},
+                 {"q": "'Bu stol' (стол = erkak) qanday?", "a": "этот стол", "type": "choice",
+                  "options": ["этот стол", "эта стол", "это стол", "эти стол"]},
+                 {"q": "'Bu kitob' (книга = ayol) qanday?", "a": "эта книга", "type": "choice",
+                  "options": ["этот книга", "эта книга", "это книга", "эти книга"]},
+                 {"q": "Ko'plik uchun ko'rsatkich olmoshi?", "a": "эти", "type": "choice",
+                  "options": ["этот", "эта", "это", "эти"]},
+             ])
+            ),
+            ("4-bosqich: Sifatlar (Имя прилагательное)", "beginner", "adjectives",
+             "Sifatlar otning JINSI va SONIGA moslashadi. So'roqlari: Какой? Какая? Какое? Какие?\n\n"
+             "ERKAK (Какой?): -ый/-ий/-ой\n"
+             "  новый дом (yangi uy), синий карандаш (ko'k qalam), большой город (katta shahar)\n\n"
+             "AYOL (Какая?): -ая/-яя\n"
+             "  новая машина (yangi mashina), синяя ручка (ko'k ruchka)\n\n"
+             "O'RTA (Какое?): -ое/-ее\n"
+             "  новое здание (yangi bino), синее небо (ko'k osmon)\n\n"
+             "KO'PLIK (Какие?): -ые/-ие\n"
+             "  новые книги (yangi kitoblar), синие цветы (ko'k gullar)",
+             json.dumps([
+                 {"ru": "новый стол (erkak) — yangi stol", "uz": "Какой стол? — новый"},
+                 {"ru": "новая книга (ayol) — yangi kitob", "uz": "Какая книга? — новая"},
+                 {"ru": "новое окно (o'rta) — yangi deraza", "uz": "Какое окно? — новое"},
+                 {"ru": "новые дома (ko'plik) — yangi uylar", "uz": "Какие дома? — новые"},
+                 {"ru": "красивый город — chiroyli shahar (erkak)", "uz": "красивый = chiroyli (erkak)"},
+             ]),
+             json.dumps([
+                 {"q": "'Chiroyli uy' — стол erkak jins (Какой?)", "a": "красивый дом", "type": "choice",
+                  "options": ["красивый дом", "красивая дом", "красивое дом", "красивые дом"]},
+                 {"q": "'Синий' sifatining ayol jins shakli?", "a": "синяя", "type": "choice",
+                  "options": ["синий", "синяя", "синее", "синие"]},
+                 {"q": "'Yangi kitoblar' — ko'plik?", "a": "новые книги", "type": "choice",
+                  "options": ["новый книги", "новая книги", "новое книги", "новые книги"]},
+             ])
+            ),
+            # ── 5-BOSQICH: FE'L ───────────────────────────
+            ("5-bosqich: Fe'llar — Infinitiv va hozirgi zamon", "beginner", "verbs",
+             "Fe'lning boshlang'ich shakli (infinitiv) -ТЬ/-ЧЬ bilan tugaydi.\n"
+             "Что делать? — nima qilmoq? | Что сделать? — nima qildi?\n\n"
+             "1-TUSLANISH (-ать/-ять/-еть/-ыть):\n"
+             "  Я читаЮ     — Men o'qiyapman\n"
+             "  Ты читаЕШЬ  — Sen o'qiyapsan\n"
+             "  Он читаЕТ   — U o'qiyapti\n"
+             "  Мы читаЕМ   — Biz o'qiyapmiz\n"
+             "  Вы читаЕТЕ  — Siz o'qiyapsiz\n"
+             "  Они читаЮТ  — Ular o'qiyapti\n\n"
+             "2-TUSLANISH (-ить/-еть ba'zilari):\n"
+             "  Я говорЮ    — Men gapiryapman\n"
+             "  Ты говорИШЬ — Sen gapiryapsan\n"
+             "  Он говорИТ  — U gapiryapti\n"
+             "  Мы говорИМ  — Biz gapiryapmiz\n"
+             "  Вы говорИТЕ — Siz gapiryapsiz\n"
+             "  Они говорЯТ — Ular gapiryapti",
+             json.dumps([
+                 {"ru": "Я читаю книгу. — Men kitob o'qiyapman.", "uz": "читать = o'qimoq (1-tuslanish)"},
+                 {"ru": "Ты говоришь по-русски? — Sen rus tilida gapirasan?", "uz": "говорить = gapirmoq (2-tuslanish)"},
+                 {"ru": "Он работает каждый день. — U har kuni ishlaydi.", "uz": "работать = ishlamoq (1-tuslanish)"},
+                 {"ru": "Мы учимся в университете. — Biz universitetda o'qiymiz.", "uz": "учиться = o'qimoq (qaytim)"},
+             ]),
+             json.dumps([
+                 {"q": "'Читать' fe'lining 'Я' shakli?", "a": "читаю", "type": "choice",
+                  "options": ["читаю", "читаешь", "читает", "читают"]},
+                 {"q": "'Говорить' fe'lining 'Они' shakli?", "a": "говорят", "type": "choice",
+                  "options": ["говорят", "говорят", "говорите", "говорим"]},
+                 {"q": "'Работать' fe'lining 'Мы' shakli?", "a": "работаем", "type": "choice",
+                  "options": ["работаю", "работаешь", "работаем", "работают"]},
+                 {"q": "Infinitiv qanday qo'shimcha bilan tugaydi?", "a": "-ть", "type": "choice",
+                  "options": ["-ть", "-ет", "-ит", "-ют"]},
+             ])
+            ),
+            ("5-bosqich: O'tgan va kelasi zamon", "intermediate", "verbs",
+             "O'TGAN ZAMON: fe'l asosiga -Л (erkak), -ЛА (ayol), -ЛО (o'rta), -ЛИ (ko'plik) qo'shiladi.\n\n"
+             "  работать → работал (u ishladi — erkak)\n"
+             "             работала (u ishladi — ayol)\n"
+             "             работали (ular ishlashdi)\n\n"
+             "KELASI ZAMON: БУДУ + infinitiv (noaniq) yoki tuslanadi (aniq):\n"
+             "  Я буду читать — Men o'qiyman (noaniq)\n"
+             "  Я прочитаю   — Men o'qib tugatayman (aniq)\n\n"
+             "BUYRUQ MAYL (Императив):\n"
+             "  Читай! — O'qi! (sen uchun)\n"
+             "  Читайте! — O'qing! (siz uchun / rasmiy)",
+             json.dumps([
+                 {"ru": "Вчера я читал книгу. — Kecha men kitob o'qidim. (erkak)", "uz": "читал = erkak o'tgan zamon"},
+                 {"ru": "Мама работала дома. — Onam uyda ishladi. (ayol)", "uz": "работала = ayol o'tgan zamon"},
+                 {"ru": "Завтра я буду учиться. — Ertaga men o'rganaman.", "uz": "буду учиться = kelasi zamon"},
+                 {"ru": "Читай каждый день! — Har kuni o'qi!", "uz": "Читай = buyruq (sen)"},
+             ]),
+             json.dumps([
+                 {"q": "'Она работала' — qaysi zamon?", "a": "o'tgan zamon", "type": "choice",
+                  "options": ["hozirgi zamon", "o'tgan zamon", "kelasi zamon"]},
+                 {"q": "'Ishladi (ayol)' ruscha qanday?", "a": "работала", "type": "choice",
+                  "options": ["работал", "работала", "работало", "работали"]},
+                 {"q": "Kelasi zamon noaniq: 'Men o'rganaman'?", "a": "Я буду учиться", "type": "choice",
+                  "options": ["Я учусь", "Я буду учиться", "Я учился", "Я учите"]},
+             ])
+            ),
+            # ── 6-BOSQICH: KELSHIKLAR ──────────────────────
+            ("6-bosqich: Bosh kelshik — Именительный падеж", "beginner", "cases",
+             "Rus tilida 6 ta kelshik (падеж) bor. Boshlovchi uchun 3 tasi eng muhim.\n\n"
+             "1. BOSH KELSHIK (Именительный падеж) — Kim? Nima? (Кто? Что?)\n"
+             "   Bu gapning EGASI uchun ishlatiladi. So'z o'zgarmaydi.\n\n"
+             "   Это стол. — Bu stol.\n"
+             "   Иван студент. — Ivan talaba.\n"
+             "   Книга интересная. — Kitob qiziq.\n\n"
+             "QOIDA: Gapda ega (kim yoki nima qilayapti) — doim Bosh kelshikda!",
+             json.dumps([
+                 {"ru": "Кто это? — Это студент. (KIM = Bosh kelshik)", "uz": "Студент = ega, o'zgarmaydi"},
+                 {"ru": "Что это? — Это книга. (NIMA = Bosh kelshik)", "uz": "Книга = ega, o'zgarmaydi"},
+                 {"ru": "Иван читает. — Ivan o'qiyapti. (Ivan = ega)", "uz": "Иван = bosh kelshik"},
+                 {"ru": "Собака бежит. — It yuguradi.", "uz": "Собака = ega, bosh kelshik"},
+             ]),
+             json.dumps([
+                 {"q": "'Bu talaba' deyilganda qaysi kelshik ishlatiladi?", "a": "Bosh kelshik", "type": "choice",
+                  "options": ["Bosh kelshik", "Tushum kelshigi", "O'rin-payt kelshigi"]},
+                 {"q": "Gapning EGASI qaysi kelshikda bo'ladi?", "a": "Именительный (Bosh)", "type": "choice",
+                  "options": ["Именительный (Bosh)", "Винительный (Tushum)", "Предложный (O'rin-payt)"]},
+             ])
+            ),
+            ("6-bosqich: O'rin-payt kelshigi — Предложный падеж", "beginner", "cases",
+             "O'RIN-PAYT KELSHIGI (Предложный падеж) — Qayerda? (Где?)\n\n"
+             "Doim В (ichida) yoki НА (ustida/da) predloglari bilan ishlatiladi.\n\n"
+             "QOIDA — qo'shimchalar:\n"
+             "  Erkak va o'rta: -Е qo'shiladi: стол → на столЕ, окно → на окнЕ\n"
+             "  Ayol: -А/-Я o'rniga -Е: книга → в книгЕ, семья → в семьЕ\n\n"
+             "В — yopiq joy (ichida): в школе, в городе, в доме\n"
+             "НА — ochiq joy yoki sirt: на столе, на работе, на улице",
+             json.dumps([
+                 {"ru": "Я живу в Ташкенте. — Men Toshkentda yashayman.", "uz": "в + Ташкент → Ташкенте"},
+                 {"ru": "Книга лежит на столе. — Kitob stolda yotibdi.", "uz": "на + стол → столе"},
+                 {"ru": "Мы учимся в школе. — Biz maktabda o'qiymiz.", "uz": "в + школа → школе"},
+                 {"ru": "Он работает на заводе. — U zavodda ishlaydi.", "uz": "на + завод → заводе"},
+                 {"ru": "Дети играют на улице. — Bolalar ko'chada o'ynayapti.", "uz": "на + улица → улице"},
+             ]),
+             json.dumps([
+                 {"q": "'Maktabda' (в + школа) — O'rin-payt kelshigi?", "a": "в школе", "type": "choice",
+                  "options": ["в школа", "в школе", "на школа", "в школу"]},
+                 {"q": "'Stolda' (на + стол)?", "a": "на столе", "type": "choice",
+                  "options": ["на стол", "на столе", "в столе", "на столу"]},
+                 {"q": "Qaysi predlog YOPIQ joy uchun ishlatiladi?", "a": "В", "type": "choice",
+                  "options": ["В", "НА", "ИЗ", "ДО"]},
+             ])
+            ),
+            ("6-bosqich: Tushum kelshigi — Винительный падеж", "intermediate", "cases",
+             "TUSHUM KELSHIGI (Винительный падеж) — Nimani? Kimni? (Что? Кого?)\n"
+             "To'g'ridan-to'g'ri ob'ekt uchun ishlatiladi.\n\n"
+             "JONSIZ OTLAR (Что? — Nimani?):\n"
+             "  Erkak: o'zgarmaydi — вижу стол (stolni ko'ryapman)\n"
+             "  Ayol: -а/-я → -у/-ю — вижу книгу (kitobni), вижу семью\n"
+             "  O'rta: o'zgarmaydi — вижу окно\n\n"
+             "JONLI OTLAR (Кого? — Kimni?):\n"
+             "  Erkak: -а/-я qo'shiladi — вижу студента, вижу друга\n\n"
+             "YO'NALISH (Куда? — Qayerga?) — В/НА + Tushum kelshigi:\n"
+             "  Я иду в школу. — Men maktabga borayapman. (школа→школу)",
+             json.dumps([
+                 {"ru": "Я читаю книгу. — Men kitob o'qiyapman. (книга→книгу)", "uz": "книгу = tushum kelshigi"},
+                 {"ru": "Я вижу студента. — Men talabani ko'ryapman. (jonli)", "uz": "студента = jonli tushum"},
+                 {"ru": "Я иду в школу. — Men maktabga borayapman.", "uz": "школу = yo'nalish тушум"},
+                 {"ru": "Он любит маму. — U onasini sevadi. (мама→маму)", "uz": "маму = тушум"},
+             ]),
+             json.dumps([
+                 {"q": "'Kitobni o'qiyman' — книга (ayol) tushum kelshigi?", "a": "читаю книгу", "type": "choice",
+                  "options": ["читаю книга", "читаю книгу", "читаю книге", "читаю книги"]},
+                 {"q": "'Maktabga boraman' — yo'nalish tushum kelshigi?", "a": "иду в школу", "type": "choice",
+                  "options": ["иду в школа", "иду в школе", "иду в школу", "иду в школой"]},
+                 {"q": "Tushum kelshigi — qaysi so'roqqa javob beradi?", "a": "Что? / Кого?", "type": "choice",
+                  "options": ["Кто? / Что?", "Что? / Кого?", "Где?", "Когда?"]},
              ])
             ),
         ]

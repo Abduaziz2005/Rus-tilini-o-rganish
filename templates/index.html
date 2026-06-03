@@ -143,9 +143,22 @@
   <div class="page-header">
     <h1>📖 Lug'at</h1>
     <div class="header-actions">
-      <button class="btn btn-primary" onclick="openAddWordModal()">➕ So'z qo'shish</button>
-      <button class="btn btn-ghost" onclick="openAIFetchModal()">🤖 AI dan yuklash</button>
+      <button class="btn btn-primary btn-sm" onclick="openAddWordModal()">➕ So'z qo'shish</button>
+      <button class="btn btn-ghost btn-sm" onclick="openAIFetchModal()">🤖 AI yuklash</button>
     </div>
+  </div>
+
+  <!-- Kategoriyalar paneli (progress bar bilan) -->
+  <div class="cat-panel" id="catPanel">
+    <div class="cat-panel-title">📂 Kategoriyalar</div>
+    <div class="cat-grid" id="catGrid"></div>
+  </div>
+
+  <!-- Faol kategoriya testi -->
+  <div id="catTestBanner" class="cat-test-banner" style="display:none">
+    <div id="catTestInfo"></div>
+    <button class="btn btn-primary btn-sm" onclick="startCatTest()">🧪 Kategoriya testi</button>
+    <button class="btn btn-ghost btn-sm" onclick="hideCatBanner()">✕</button>
   </div>
 
   <div class="filter-bar">
@@ -157,7 +170,7 @@
       <option value="intermediate">🟡 O'rta</option>
       <option value="advanced">🔴 Yuqori</option>
     </select>
-    <select id="wordCatFilter" class="filter-select" onchange="loadVocabulary()">
+    <select id="wordCatFilter" class="filter-select" onchange="onCatFilterChange()">
       <option value="">Barcha kategoriyalar</option>
     </select>
     <button class="btn btn-sm" onclick="loadVocabulary()">🔄</button>
@@ -166,6 +179,24 @@
   <div id="wordCount" class="word-count-bar"></div>
   <div id="wordGrid" class="word-grid"></div>
   <div class="pagination" id="wordPagination"></div>
+
+  <!-- Kategoriya testi oynasi (inline) -->
+  <div id="catTestArea" style="display:none" class="cat-test-area">
+    <div class="cat-test-header">
+      <button class="btn btn-ghost btn-sm" onclick="closeCatTest()">← Orqaga</button>
+      <h3 id="catTestTitle">Kategoriya testi</h3>
+      <div class="qp-bar" style="width:200px"><div class="qp-fill" id="catProgFill"></div></div>
+      <span id="catProgLabel">0/10</span>
+    </div>
+    <div id="catTestContent"></div>
+    <div id="catTestResult" style="display:none" class="quiz-result">
+      <div class="result-emoji" id="catResultEmoji">🎉</div>
+      <div class="result-score" id="catResultScore"></div>
+      <div id="catResultDetails" style="margin:12px 0"></div>
+      <button class="btn btn-primary" onclick="startCatTest()">🔄 Qayta</button>
+      <button class="btn btn-ghost" onclick="closeCatTest()">✕ Yopish</button>
+    </div>
+  </div>
 </section>
 
 <!-- ── FLASHCARDS PAGE ── -->
@@ -234,18 +265,75 @@
   <div class="page-header">
     <h1>📝 Grammatika</h1>
     <div class="header-actions">
-      <button class="btn btn-ghost" onclick="openAIGrammarModal()">🤖 AI tushuntirsin</button>
+      <button class="btn btn-ghost btn-sm" onclick="openAIGrammarModal()">🤖 AI tushuntirsin</button>
+      <button class="btn btn-primary btn-sm" onclick="startGrammarLesson()">▶ Darsni boshlash</button>
     </div>
   </div>
 
-  <div class="grammar-tabs">
-    <button class="g-tab active" onclick="filterGrammar('all',this)">Hammasi</button>
+  <!-- Bosqichlar paneli -->
+  <div class="steps-panel" id="grammarStepsPanel">
+    <div class="steps-title">📚 O'quv yo'li — 6 bosqich</div>
+    <div class="steps-track" id="grammarStepsTrack"></div>
+  </div>
+
+  <!-- Filtr tablar -->
+  <div class="grammar-tabs" style="margin-top:12px">
+    <button class="g-tab active" onclick="filterGrammar('all',this)">📋 Hammasi</button>
     <button class="g-tab" onclick="filterGrammar('beginner',this)">🟢 Boshlang'ich</button>
     <button class="g-tab" onclick="filterGrammar('intermediate',this)">🟡 O'rta</button>
     <button class="g-tab" onclick="filterGrammar('advanced',this)">🔴 Yuqori</button>
+    <button class="g-tab" onclick="filterGrammarCat('alphabet',this)">🔤 Alifbo</button>
+    <button class="g-tab" onclick="filterGrammarCat('nouns',this)">🏷 Otlar</button>
+    <button class="g-tab" onclick="filterGrammarCat('pronouns',this)">👤 Olmoshlar</button>
+    <button class="g-tab" onclick="filterGrammarCat('adjectives',this)">🎨 Sifatlar</button>
+    <button class="g-tab" onclick="filterGrammarCat('verbs',this)">⚡ Fe'llar</button>
+    <button class="g-tab" onclick="filterGrammarCat('cases',this)">📐 Kelshiklar</button>
   </div>
 
   <div id="grammarList" class="grammar-list"></div>
+
+  <!-- ── GRAMMAR LESSON MODE (o'qitish rejimi) ── -->
+  <div id="grammarLessonMode" style="display:none">
+    <div class="lesson-mode-header">
+      <button class="btn btn-ghost btn-sm" onclick="exitGrammarLesson()">← Orqaga</button>
+      <div class="lm-progress-wrap">
+        <div class="lm-prog-bar"><div id="gmProgFill" class="lm-prog-fill"></div></div>
+        <span id="gmProgLabel" class="lm-prog-label">1 / 12</span>
+      </div>
+      <span id="gmXPLabel" class="score-badge">+0 XP</span>
+    </div>
+
+    <!-- O'qitish bosqichlari: explain → examples → exercise -->
+    <div id="gmStepExplain" class="gm-step">
+      <div class="gm-step-badge">📖 Qoida</div>
+      <h2 id="gmTitle" class="gm-title"></h2>
+      <div id="gmContent" class="gm-content"></div>
+      <button class="btn btn-primary btn-lg" onclick="gmNextStep('examples')">
+        📚 Misollarga o'tish →
+      </button>
+    </div>
+
+    <div id="gmStepExamples" class="gm-step" style="display:none">
+      <div class="gm-step-badge">💡 Misollar</div>
+      <h2 id="gmTitleEx" class="gm-title"></h2>
+      <div id="gmExamplesList" class="gm-examples-list"></div>
+      <button class="btn btn-primary btn-lg" onclick="gmNextStep('exercise')">
+        ✏️ Mashqga o'tish →
+      </button>
+    </div>
+
+    <div id="gmStepExercise" class="gm-step" style="display:none">
+      <div class="gm-step-badge">✏️ Mashq</div>
+      <h2 id="gmTitleEx2" class="gm-title"></h2>
+      <div id="gmExerciseArea" class="gm-exercise-area"></div>
+      <div id="gmExResult" class="gm-ex-result" style="display:none"></div>
+      <div id="gmExButtons" class="gm-ex-buttons">
+        <button class="btn btn-primary btn-lg" id="gmCheckBtn" onclick="gmCheckExercise()">
+          ✅ Tekshirish
+        </button>
+      </div>
+    </div>
+  </div>
 </section>
 
 <!-- ── GAMES PAGE ── -->
