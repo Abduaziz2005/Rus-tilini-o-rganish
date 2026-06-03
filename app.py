@@ -2880,45 +2880,50 @@ def _panel_engine(user_msg: str) -> dict | None:
 
 def _try_math(text: str):
     """Xabardagi matematik ifodani hisoblaydi. None qaytarsa — ifoda yo'q."""
-    # Matematik belgilar bor-yo'qligini tekshirish
-    if not _re_engine.search(r'[\d]', text):
+    import re as _re, math as _math
+    if not _re.search(r'\d', text):
         return None
 
-    # Ifodani tozalash: so'zlarni matematik operatorlarga aylantirish
-    expr = text.lower()
-    replacements = {
-        r'\bqo\'shish\b':    '+',   r'\bplus\b':    '+',
-        r'\bayirish\b':      '-',   r'\bminus\b':   '-',
-        r'\bko\'paytirish\b':'*',   r'\bbo\'lish\b':'/',
-        r'\bdaraja\b':       '**',  r'\bildiz\b':   'sqrt',
-        r'\bfoiz\b':         '/100',
-        r'\bpl[yu]+s\b':     '+',
-        r'\xd7':             '*',   r'\xf7':        '/',
-        r'\xb2':             '**2', r'\xb3':        '**3',
-        r'\s+':              ' ',
-    }
-    for pat, repl in replacements.items():
-        expr = _re_engine.sub(pat, repl, expr)
+    t = text.lower().strip()
+    # O'zbek/Rus so'zlarni belgilarga
+    word_ops = [
+        (r"qo[''`]shish", '+'), (r"ayirish", '-'),
+        (r"ko[''`]paytirish", '*'), (r"bo[''`]lish", '/'),
+        (r"plus", '+'), (r"minus", '-'), (r"daraja", '**'),
+        (r"foiz", '/100'), (r"процент", '/100'),
+        (r"сложить", '+'), (r"вычесть", '-'),
+        (r"умножить на", '*'), (r"разделить на", '/'),
+    ]
+    expr = t
+    for pat, repl in word_ops:
+        expr = _re.sub(r'\b' + pat + r'\b', repl, expr)
 
-    # Faqat raqam va operator qoldirish
-    expr = _re_engine.sub(r'[^0-9+\-*/().\s²³√]', ' ', text)
-    expr = expr.strip()
-    if not expr:
+    # sqrt / ildiz
+    expr = _re.sub(
+        r'(?:sqrt|ildiz|корень)\s*\(?\s*(\d+(?:\.\d+)?)\s*\)?',
+        lambda m: str(round(_math.sqrt(float(m.group(1))), 6)), expr)
+
+    # Unicode amallar
+    expr = expr.replace('×','*').replace('÷','/') \
+               .replace('²','**2').replace('³','**3').replace('^','**')
+
+    # Faqat raqam va amallarni qoldirish
+    clean = _re.sub(r'[^0-9+\-*/(). ]', ' ', expr).strip()
+    if not clean or not _re.search(r'\d', clean):
+        return None
+    if not _re.search(r'[+\-*/()]', clean):
         return None
 
-    # sqrt yozuvi
-    expr2 = _re_engine.sub(r'sqrt\s*\(?([\d.]+)\)?',
-                            lambda m: str(_math_engine.sqrt(float(m.group(1)))),
-                            expr)
     try:
-        # Faqat xavfsiz ifoda
-        if _re_engine.search(r'[a-zA-Z]', expr2):
-            return None
-        result = eval(expr2, {"__builtins__": {}})
-        # Butun son bo'lsa int ko'rsat
-        if isinstance(result, float) and result == int(result):
-            result = int(result)
-        return f"🧮 Natija: **{result}**\n_{expr.strip()} = {result}_"
+        result = eval(clean, {"__builtins__": {}})
+        if isinstance(result, float):
+            result = round(result, 8)
+            if result == int(result):
+                result = int(result)
+        expr_show = _re.sub(r'\s+', '', clean)
+        return f"🧮 **{result}**\n_{expr_show} = {result}_"
+    except ZeroDivisionError:
+        return "❌ Nolga bo'lib bo'lmaydi!"
     except Exception:
         return None
 

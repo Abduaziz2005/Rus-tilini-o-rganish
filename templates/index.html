@@ -717,18 +717,19 @@
           <div class="ap-form-row">
             <label>❓ Savol so'z</label>
             <input type="text" id="qaQWord" class="form-input" placeholder="nima"
-                   list="qwDatalist">
+                   list="qwDatalist" oninput="_qaAutoSave()">
             <datalist id="qwDatalist"></datalist>
           </div>
           <div class="ap-form-row">
             <label>🏷 Nom</label>
             <input type="text" id="qaName" class="form-input" placeholder="mashina"
-                   list="nmDatalist">
+                   list="nmDatalist" oninput="_qaAutoSave()">
             <datalist id="nmDatalist"></datalist>
           </div>
           <div class="ap-form-row">
-            <label>💬 Javob</label>
+            <label>💬 Javob <span style="font-size:10px;color:var(--green);font-weight:400">● avtomatik saqlanadi</span></label>
             <textarea id="qaAnswer" class="form-input" rows="3"
+                      oninput="_qaAutoSave()"
                       placeholder="Masalan: Bugatti — eng tez mashina!"></textarea>
           </div>
           <button class="btn btn-primary" style="width:100%" onclick="saveQA()">💾 Saqlash</button>

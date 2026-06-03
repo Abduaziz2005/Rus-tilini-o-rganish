@@ -2689,3 +2689,94 @@ input[type=range]::-webkit-slider-thumb {
 .ath-q { font-weight:700; color:var(--text1); margin-bottom:2px; }
 .ath-s { font-size:10px; color:var(--text3); text-transform:uppercase; letter-spacing:.3px; margin-bottom:3px; }
 .ath-a { color:var(--text2); line-height:1.4; }
+
+
+/* ══════════════════════════════════════════════════
+   AI PANEL — QOSHIMCHA YAXSHILANISHLAR
+══════════════════════════════════════════════════ */
+
+/* ── Panel tugma — yanada ko'zga ko'rinarli ─────── */
+.panel-open-btn {
+  position: relative;
+  overflow: hidden;
+}
+.panel-open-btn::after {
+  content: '';
+  position: absolute; inset: 0;
+  background: linear-gradient(90deg,transparent,rgba(255,255,255,.15),transparent);
+  transform: translateX(-100%);
+  transition: transform .6s;
+}
+.panel-open-btn:hover::after { transform: translateX(100%); }
+
+/* ── QA Auto-save status ─────────────────────────── */
+#qaSaveStatus {
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  transition: color .2s;
+}
+
+/* ── Savol so'z label real-vaqt belgisi ─────────── */
+.ap-autosave-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--green);
+  padding: 1px 6px;
+  background: rgba(52,201,126,.1);
+  border-radius: 99px;
+  border: 1px solid rgba(52,201,126,.3);
+  margin-left: 4px;
+  vertical-align: middle;
+}
+.ap-autosave-badge::before { content: '●'; font-size: 8px; }
+
+/* ── ap-btn-toggle ───────────────────────────────── */
+.ap-btn-toggle {
+  min-width: 32px;
+  font-size: 14px;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all .15s;
+}
+.ap-btn-toggle.on  { border-color: var(--green); background: rgba(52,201,126,.1); }
+.ap-btn-toggle.off { border-color: var(--border); background: var(--bg3); opacity:.7; }
+
+/* ── Panel QA Ko'rinishi (form label yangi) ──────── */
+#apTab-qa .ap-form-row label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* ── Test tab status ranglar ─────────────────────── */
+.atr-source      { font-size:11px; font-weight:700; margin-bottom:6px; text-transform:uppercase; letter-spacing:.4px; }
+.atr-source.found    { color: var(--green); }
+.atr-source.notfound { color: var(--text3); }
+.atr-answer          { font-size:13px; line-height:1.6; color:var(--text1); word-break:break-word; white-space:pre-wrap; }
+.atr-answer.notfound { color:var(--text3); font-style:italic; }
+
+/* ── Panel scrollbar ─────────────────────────────── */
+.ai-panel-col *::-webkit-scrollbar       { width:4px; height:4px; }
+.ai-panel-col *::-webkit-scrollbar-thumb { background:var(--border); border-radius:99px; }
+.ai-panel-col *::-webkit-scrollbar-track { background:transparent; }
+
+/* ── Responsive 768px ────────────────────────────── */
+@media (max-width: 768px) {
+  .chat-layout.panel-open {
+    flex-direction: column;
+  }
+  .ai-panel-col {
+    width: 100%;
+    max-height: 60vh;
+    border-top: 2px solid var(--accent);
+    border-radius: 0 0 var(--radius) var(--radius);
+  }
+  .panel-open-btn { font-size: 12px; padding: 5px 10px; }
+  .ap-tabs { padding: 5px 8px 3px; }
+  .ap-tab  { padding: 4px 8px; font-size: 10px; }
+}

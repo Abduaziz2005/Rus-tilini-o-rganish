@@ -2752,6 +2752,46 @@ async function loadQA(){
   _updateNMDatalist();
 }
 
+// QA real-vaqt saqlash — debounce 600ms
+let _qaSaveTimer = null;
+function _qaAutoSave(){
+  clearTimeout(_qaSaveTimer);
+  const qw  = ($("qaQWord")?.value  || "").trim().toLowerCase();
+  const nm  = ($("qaName")?.value   || "").trim().toLowerCase();
+  const ans = ($("qaAnswer")?.value || "").trim();
+  if(!qw || !nm || !ans) return;                 // to'liq emas — kutish
+  _qaShowSaveStatus("⏳ Saqlanmoqda...", "pending");
+  _qaSaveTimer = setTimeout(()=>_doSaveQA(qw,nm,ans), 600);
+}
+
+async function _doSaveQA(qw, nm, ans){
+  const r = await api("/api/panel/qa",{
+    method:"POST",
+    body:JSON.stringify({q_word:qw, name:nm, answer:ans}),
+  });
+  if(r?.ok){
+    _qaShowSaveStatus(`✅ Saqlandi (${qw} + ${nm})`, "ok");
+    // Ro'yxatni yangilash (formni TOZALAMAYDI — foydalanuvchi davom ettirsin)
+    loadQA(); loadNames(); loadQWords(); loadPanelStats();
+  } else {
+    _qaShowSaveStatus("❌ "+( r?.error||"Xatolik"), "err");
+  }
+}
+
+function _qaShowSaveStatus(msg, type){
+  let el = $("qaSaveStatus");
+  if(!el){
+    el = document.createElement("div");
+    el.id = "qaSaveStatus";
+    el.style.cssText="font-size:11px;font-weight:700;padding:4px 8px;border-radius:5px;margin-top:4px;transition:all .2s";
+    const form = $("apTab-qa")?.querySelector(".ap-form");
+    if(form) form.appendChild(el);
+  }
+  el.textContent = msg;
+  const colors = { ok:"var(--green)", err:"var(--red)", pending:"var(--yellow)" };
+  el.style.color = colors[type]||"var(--text2)";
+}
+
 async function saveQA(){
   const qw  = ($("qaQWord")?.value  || "").trim().toLowerCase();
   const nm  = ($("qaName")?.value   || "").trim().toLowerCase();
@@ -2759,22 +2799,9 @@ async function saveQA(){
   if(!qw || !nm || !ans){
     toast("Barcha maydonlarni to'ldiring","warn"); return;
   }
-  const btn = document.querySelector("#apTab-qa .btn-primary");
-  if(btn){ btn.disabled = true; btn.textContent = "⏳..."; }
-  const r = await api("/api/panel/qa", {
-    method: "POST",
-    body: JSON.stringify({ q_word: qw, name: nm, answer: ans }),
-  });
-  if(btn){ btn.disabled = false; btn.textContent = "💾 Saqlash"; }
-  if(r?.ok){
-    toast(`✅ "${qw} + ${nm}" saqlandi`, "success", 1800);
-    $("qaQWord").value = "";
-    $("qaName").value  = "";
-    $("qaAnswer").value= "";
-    loadQA(); loadNames(); loadQWords(); loadPanelStats();
-  } else {
-    toast(r?.error || "❌ Xatolik", "error");
-  }
+  clearTimeout(_qaSaveTimer);
+  _qaShowSaveStatus("⏳...", "pending");
+  await _doSaveQA(qw, nm, ans);
 }
 
 function editQA(id){
