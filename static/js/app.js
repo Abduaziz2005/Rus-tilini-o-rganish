@@ -118,6 +118,7 @@ function navigate(page){
     settings:   loadSettings,
     adaptive:   loadAdaptivePage,
     roleplay:   loadRoleplayPage,
+    samarali:   ()=>{ /* Samarali AI — standalone, o'z JS bilan */ },
   };
   if(loaders[page]) loaders[page]();
 }

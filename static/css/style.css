@@ -2780,3 +2780,82 @@ input[type=range]::-webkit-slider-thumb {
   .ap-tabs { padding: 5px 8px 3px; }
   .ap-tab  { padding: 4px 8px; font-size: 10px; }
 }
+
+
+/* ══════════════════════════════════════════════════
+   SAMARALI AI — Nav badge va sahifa integratsiya
+══════════════════════════════════════════════════ */
+
+/* ── Sidebar NEW badge ───────────────────────────── */
+.nav-badge-new {
+  display: inline-flex;
+  align-items: center;
+  font-size: 9px;
+  font-weight: 800;
+  padding: 1px 5px;
+  border-radius: 99px;
+  background: linear-gradient(135deg, #5b6ef5, #9d72ff);
+  color: #fff;
+  letter-spacing: .5px;
+  margin-left: 4px;
+  vertical-align: middle;
+  animation: newBadgePulse 2s infinite;
+}
+@keyframes newBadgePulse {
+  0%,100% { box-shadow: 0 0 0 0 rgba(91,110,245,.5); }
+  50%      { box-shadow: 0 0 0 4px rgba(91,110,245,0); }
+}
+
+/* Samarali AI nav item — ko'zga ko'rinarli */
+.samarali-nav-btn {
+  background: rgba(91,110,245,.07) !important;
+  border: 1px solid rgba(91,110,245,.25);
+  border-radius: var(--radius-sm);
+  margin: 2px 0;
+}
+.samarali-nav-btn:hover,
+.samarali-nav-btn.active {
+  background: rgba(91,110,245,.18) !important;
+  border-color: rgba(91,110,245,.6) !important;
+}
+
+/* ── Samarali AI sahifasi ichidagi global overrides ─ */
+#page-samarali {
+  padding: 0;
+  overflow: hidden;
+}
+#page-samarali #sai-root {
+  --accent:  #5b6ef5;
+  --green:   #2dd884;
+  --red:     #f04f5a;
+  --yellow:  #f0b429;
+  --purple:  #9d72ff;
+  --cyan:    #22d3ee;
+  --orange:  #f07030;
+  font-family: 'Syne', 'Inter', sans-serif;
+}
+/* Fonts (Syne preconnect allaqachon bor) */
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Syne:wght@400;600;800&display=swap');
+
+/* Sticky top bar inside page */
+#page-samarali #sai-top {
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+
+/* Chat wrap min-height for embedded mode */
+#page-samarali #sai-chatWrap {
+  min-height: calc(100vh - 200px);
+}
+
+/* Panel absolute inside page (not viewport) */
+#page-samarali #sai-panel {
+  position: absolute;
+  top: 52px;
+  bottom: 0;
+  border-radius: 0 0 var(--radius) 0;
+}
+
+/* Toast absolute inside page */
+#page-samarali #sai-toast {
+  position: absolute;
+}
