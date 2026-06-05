@@ -855,29 +855,15 @@
 <section class="page" id="page-chat">
 <div id="sc-root">
 
-<!-- ══ TOP BAR ══ -->
-<div id="sc-top">
-  <div class="sc-logo">🧠</div>
-  <h1 class="sc-title">Samarali AI <span>v3</span></h1>
-  <div class="sc-ts">Savol: <b id="sc-sQ">0</b></div>
-  <div class="sc-ts">O'rganildi: <b id="sc-sL">0</b></div>
-  <div class="sc-ts">Aniqlik: <b id="sc-sA">—</b></div>
-  <div class="sc-ts">Bilim: <b id="sc-sF">0</b></div>
-  <div id="sc-moodBadge" class="sc-mood">😐 Neytral</div>
-  <button id="sc-trainToggle" class="sc-train-btn" onclick="scTogglePanel()">
-    <span class="sc-tgl-dot"></span>O'qitish
-  </button>
-</div>
-
 <!-- ══ CHAT WRAP ══ -->
 <div id="sc-chatWrap">
-  <div id="sc-chips"></div>
   <div id="sc-msgs"></div>
   <div id="sc-typing" style="display:none">
     <div class="sc-dots"><span></span><span></span><span></span></div>
   </div>
   <div class="sc-inp-row">
     <button id="sc-vbtn" onclick="scToggleVoice()" title="Ovozli kiritish">🎤</button>
+    <button id="sc-trainToggle" class="sc-train-btn-small" onclick="scTogglePanel()"><span class="sc-tgl-dot"></span></button>
     <textarea id="sc-ci" rows="1" placeholder="Xabar yozing... (Enter = yuborish)"></textarea>
     <button id="sc-sbtn" onclick="scSendMsg()">→</button>
   </div>
@@ -2001,48 +1987,148 @@
 // ═══════════════════════════════════════════════
 'use strict';
 
-// ── LocalStorage ────────────────────────────────
-const scLS  = k=>{ try{const v=localStorage.getItem('sai3_'+k);return v===null?null:v;}catch{return null;} };
-const scLSP = k=>{ try{const v=scLS(k);return v?JSON.parse(v):null;}catch{return null;} };
-const scLSS = (k,v)=>{ try{localStorage.setItem('sai3_'+k, typeof v==='string'?v:JSON.stringify(v));}catch(e){console.warn('LS err',e);} };
+// ══════════════════════════════════════════════════
+// SAMARALI AI v3 — Python SQLite backend
+// Barcha ma'lumotlar API orqali saqlanadi (doimiy)
+// ══════════════════════════════════════════════════
 
-// ── Database ─────────────────────────────────────
+// ── API helper ───────────────────────────────────
+async function scApi(url, opts={}) {
+  try {
+    const r = await fetch(url, {
+      headers: {'Content-Type':'application/json'}, ...opts
+    });
+    return await r.json();
+  } catch(e) { console.warn('scApi err:', e); return {}; }
+}
+
+// ── In-memory DB (cache) ─────────────────────────
 const scDB = {
-  triggers:   scLSP('triggers')  || ['nima','kim','qachon','qayerda','qanday','nega','qancha'],
-  entities:   scLSP('entities')  || {},
-  facts:      scLSP('facts')     || {},
-  aliases:    scLSP('aliases')   || [],
-  blocklist:  scLSP('blocklist') || {},
-  defaultReply: scLS('default')  || "Hali bilmayman. O'rgatib qo'ysangiz, minnatdor bo'laman!",
-  ltm:        scLSP('ltm')       || {},
-  stm:        [],
-  episodic:   scLSP('episodic')  || [],
-  personality:scLSP('pers')      || {brief:5,formal:5,extra:3,mood:'😐 Neytral',name:'Samarali AI',prefix:''},
-  autoLearn:  scLS('autoLearn')==='true',
-  ctxLearn:   scLS('ctxLearn')!=='false',
-  memSize:    parseInt(scLS('memSize')||'6'),
-  stats:      scLSP('stats')     || {total:0,learned:0,correct:0,wrong:0,topicMap:{},dayMap:{},feedPos:0,feedNeg:0,rejected:0},
-  learnLog:   scLSP('learnLog')  || [],
-  pending:    scLSP('pending')   || null,
-  lastTopic:  null,
+  triggers:    [],
+  entities:    {},
+  facts:       {},
+  aliases:     [],
+  blocklist:   {},
+  defaultReply:"Hali bilmayman. O'rgatib qo'ysangiz, minnatdor bo'laman!",
+  ltm:         {},
+  stm:         [],
+  personality: {brief:5,formal:5,extra:3,mood:'😐 Neytral',name:'Samarali AI',prefix:''},
+  autoLearn:   false,
+  ctxLearn:    true,
+  memSize:     6,
+  stats:       {total:0,learned:0,correct:0,wrong:0,topicMap:{},dayMap:{},feedPos:0,feedNeg:0,rejected:0},
+  learnLog:    [],
+  pending:     null,
+  lastTopic:   null,
 };
 
-function scSaveDB(k){
-  const map={triggers:'triggers',entities:'entities',facts:'facts',
-    aliases:'aliases',blocklist:'blocklist',ltm:'ltm',
-    episodic:'episodic',pers:'personality',stats:'stats',
-    learnLog:'learnLog',pending:'pending'};
-  if(k==='default') scLSS('default',scDB.defaultReply);
-  else if(map[k]) scLSS(map[k],scDB[k]);
+// ── Ma'lumotlarni serverdan yuklash ──────────────
+async function scLoadAll() {
+  try {
+    // Triggerlar
+    const trigs = await scApi('/api/sc/triggers');
+    if(Array.isArray(trigs)) {
+      scDB.triggers = trigs.filter(t=>t.enabled).map(t=>t.word);
+      scDB._triggersRaw = trigs;
+    }
+    // Entitylar
+    const ents = await scApi('/api/sc/entities');
+    if(Array.isArray(ents)) {
+      scDB.entities = {};
+      ents.forEach(e=>{
+        scDB.entities[e.name] = {
+          triggers: (e.triggers||'').split(',').map(s=>s.trim()).filter(Boolean),
+          aliases:  (e.aliases||'').split(',').map(s=>s.trim()).filter(Boolean),
+        };
+      });
+    }
+    // Faktlar
+    const facts = await scApi('/api/sc/facts');
+    if(Array.isArray(facts)) {
+      scDB.facts = {};
+      facts.forEach(f=>{
+        const key = f.trigger_word+'__'+f.entity;
+        scDB.facts[key] = {
+          reply:       f.reply,
+          variants:    f.variants || [],
+          score:       f.score || 5,
+          useCount:    f.use_count || 0,
+          correctCount:f.correct_count || 0,
+          wrongCount:  f.wrong_count || 0,
+          sm2:         f.sm2 || {},
+          createdAt:   f.created_at,
+          _id:         f.id,
+          _trigger:    f.trigger_word,
+          _entity:     f.entity,
+        };
+      });
+    }
+    // Aliaslar
+    const aliases = await scApi('/api/sc/aliases');
+    if(Array.isArray(aliases)) {
+      scDB.aliases = aliases.map(a=>({
+        _id: a.id, words: a.words||[], reply: a.reply, fuzz: a.fuzz||80
+      }));
+    }
+    // Blocklist
+    const blocks = await scApi('/api/sc/blocklist');
+    if(Array.isArray(blocks)) {
+      scDB.blocklist = {};
+      blocks.filter(b=>b.enabled).forEach(b=>{
+        scDB.blocklist[b.word] = b.reply;
+      });
+    }
+    // LTM
+    const ltm = await scApi('/api/sc/ltm');
+    if(typeof ltm === 'object' && !ltm.error) {
+      scDB.ltm = {};
+      Object.entries(ltm).forEach(([k,arr])=>{
+        scDB.ltm[k] = arr.map(r=>({
+          value:r.ltm_val, confidence:r.confidence,
+          source:r.source, count:r.count, _id:r.id,
+        }));
+      });
+    }
+    // Personality
+    const pers = await scApi('/api/sc/personality');
+    if(pers && !pers.error && typeof pers === 'object') {
+      Object.assign(scDB.personality, pers);
+      scDB.autoLearn  = !!pers.autoLearn;
+      scDB.ctxLearn   = pers.ctxLearn !== false;
+      scDB.memSize    = parseInt(pers.memSize||'6');
+    }
+    // Default
+    const def = await scApi('/api/sc/default');
+    if(def && def.text) scDB.defaultReply = def.text;
+    // Stats
+    const stats = await scApi('/api/sc/stats');
+    if(stats && !stats.error) Object.assign(scDB.stats, stats);
+    // Log
+    const log = await scApi('/api/sc/log');
+    if(Array.isArray(log)) {
+      scDB.learnLog = log.map(l=>({q:l.q,a:l.a,trigger:l.trigger_w,entity:l.entity,type:l.log_type,time:l.logged_at}));
+    }
+  } catch(e) { console.warn('scLoadAll err:', e); }
 }
-function scSaveAll(){
-  Object.keys({triggers:1,entities:1,facts:1,aliases:1,blocklist:1,
-    ltm:1,episodic:1,pers:1,stats:1,learnLog:1,pending:1})
-    .forEach(k=>scSaveDB(k));
-  scLSS('default',scDB.defaultReply);
-  scLSS('autoLearn',scDB.autoLearn);
-  scLSS('ctxLearn',scDB.ctxLearn);
-  scLSS('memSize',scDB.memSize);
+
+// ── Saqlash funksiyalari (API ga) ─────────────────
+async function scSaveDB(k) {
+  // k = 'stats', 'facts', 'pers', 'default', 'ltm', 'learnLog'
+  // Ular alohida API da boshqariladi — bu funksiya endi faqat stats uchun
+  if(k === 'stats') {
+    await scApi('/api/sc/stats', {method:'POST', body:JSON.stringify(scDB.stats)});
+  } else if(k === 'pers' || k === 'personality') {
+    const p = {...scDB.personality, autoLearn:scDB.autoLearn, ctxLearn:scDB.ctxLearn, memSize:scDB.memSize};
+    await scApi('/api/sc/personality', {method:'POST', body:JSON.stringify(p)});
+  } else if(k === 'default') {
+    await scApi('/api/sc/default', {method:'POST', body:JSON.stringify({text:scDB.defaultReply})});
+  }
+  // Trigger, entity, fact, alias, blocklist, ltm ular o'z API lari orqali saqlanadi
+}
+async function scSaveAll() {
+  await scSaveDB('stats');
+  await scSaveDB('pers');
+  await scSaveDB('default');
 }
 
 // ── Helpers ─────────────────────────────────────
@@ -2094,12 +2180,14 @@ function scRenderAll(){
 
 // ── Render triggers ──────────────────────────────
 function scRenderTriggers(){
-  scI('sc-tC').textContent=scDB.triggers.length;
   const el=scI('sc-tList');
-  if(!scDB.triggers.length){el.innerHTML='<div class="empty">Hali yo\'q</div>';return;}
-  el.innerHTML=scDB.triggers.map((t,i)=>`
-    <div class="li"><span class="lt">${scEsc(t)}</span>
-    <button class="sc-bs" onclick="scDelTrigger(${i})">✕</button></div>`).join('');
+  const raw = scDB._triggersRaw || scDB.triggers.map((w,i)=>({id:i+1,word:w,enabled:1}));
+  const count = raw.length;
+  if(scI('sc-tC')) scI('sc-tC').textContent=count;
+  if(!count){el.innerHTML='<div class="empty">Hali yo\'q</div>';return;}
+  el.innerHTML=raw.map(t=>`
+    <div class="li"><span class="lt ${t.enabled?'':'sc-text3'}">${scEsc(t.word)}</span>
+    <button class="sc-bs" onclick="scDelTrigger(${t.id},'${scEsc(t.word)}')">✕</button></div>`).join('');
 }
 function scRenderEntities(){
   const keys=Object.keys(scDB.entities);
@@ -2148,20 +2236,20 @@ function scRenderFacts(){
   }).join('');
 }
 function scRenderAliases(){
-  scI('sc-aLC').textContent=scDB.aliases.length;
+  if(scI('sc-aLC')) scI('sc-aLC').textContent=scDB.aliases.length;
   const el=scI('sc-aList');
   if(!scDB.aliases.length){el.innerHTML='<div class="empty">Hali yo\'q</div>';return;}
-  el.innerHTML=scDB.aliases.map((a,i)=>`
+  el.innerHTML=scDB.aliases.map(a=>`
     <div class="ag-item"><div class="aw">
-      ${a.words.map(w=>`<span class="aw-w">${scEsc(w)}</span>`).join('')}
+      ${(a.words||[]).map(w=>`<span class="aw-w">${scEsc(w)}</span>`).join('')}
       <span style="font-size:10px;color:#4a4d62;font-family:var(--sc-mono);margin-left:auto">${a.fuzz||80}%</span>
-      <button class="sc-bs" onclick="scDelAlias(${i})">✕</button>
+      <button class="sc-bs" onclick="scDelAlias(${a._id||0})">✕</button>
     </div>
     <div style="font-size:12px;color:#8b8fa8">→ <span style="color:#2dd884">${scEsc(a.reply)}</span></div></div>`).join('');
 }
 function scRenderBlocklist(){
   const keys=Object.keys(scDB.blocklist);
-  scI('sc-bC').textContent=keys.length;
+  if(scI('sc-bC')) scI('sc-bC').textContent=keys.length;
   const el=scI('sc-bList');
   if(!keys.length){el.innerHTML='<div class="empty">Hali yo\'q</div>';return;}
   el.innerHTML=keys.map(k=>`
@@ -2277,46 +2365,74 @@ function scUpdateTop(){
   scI('sc-moodBadge').textContent=scDB.personality.mood||'😐 Neytral';
 }
 
-// ── CRUD ─────────────────────────────────────────
-function scAddTrigger(){
-  const v=scI('sc-nTrig').value.trim().toLowerCase();
-  if(!v) return scToast("Bo'sh bo'lmaydi",'err');
-  if(scDB.triggers.includes(v)) return scToast('Allaqachon bor','err');
-  scDB.triggers.push(v);scSaveDB('triggers');
-  scI('sc-nTrig').value='';scRenderTriggers();scToast("Savol so'z qo'shildi ✓");
+// ── CRUD: Trigger ────────────────────────────────
+async function scAddTrigger(){
+  const inp = scI('sc-nTrig');
+  const word = inp.value.trim().toLowerCase();
+  if(!word) return scToast("Bo'sh bo'lmaydi",'err');
+  const r = await scApi('/api/sc/triggers', {method:'POST', body:JSON.stringify({word})});
+  if(r.error === 'Allaqachon bor') return scToast('Allaqachon bor','err');
+  if(!r.ok && !r.id) return scToast(r.error||'Xatolik','err');
+  scDB.triggers.push(word);
+  inp.value='';
+  scRenderTriggers();
+  scToast("Savol so'z qo'shildi ✓");
 }
-function scDelTrigger(i){if(!confirm("O'chirasizmi?"))return;scDB.triggers.splice(i,1);scSaveDB('triggers');scRenderTriggers();scToast("O'chirildi");}
-function scAddEntity(){
-  const name=scI('sc-nEnt').value.trim().toLowerCase();
-  const trigs=scI('sc-nEntT').value.split(',').map(s=>s.trim().toLowerCase()).filter(Boolean);
-  const als=scI('sc-nEntA').value.split(',').map(s=>s.trim().toLowerCase()).filter(Boolean);
+async function scDelTrigger(id, word){
+  if(!confirm("O'chirasizmi?")) return;
+  await scApi('/api/sc/triggers/'+id, {method:'DELETE'});
+  scDB.triggers = scDB.triggers.filter(t=>t!==word);
+  scRenderTriggers();
+  scToast("O'chirildi");
+}
+// ── CRUD: Entity ─────────────────────────────────
+async function scAddEntity(){
+  const name  = scI('sc-nEnt').value.trim().toLowerCase();
+  const trigs = scI('sc-nEntT').value.trim();
+  const als   = scI('sc-nEntA').value.trim();
   if(!name) return scToast("Nom bo'sh bo'lmaydi",'err');
-  scDB.entities[name]={triggers:trigs,aliases:als};scSaveDB('entities');
-  ['sc-nEnt','sc-nEntT','sc-nEntA'].forEach(id=>scI(id).value='');
-  scRenderEntities();scToast("Nom qo'shildi ✓");
+  const r = await scApi('/api/sc/entities',{method:'POST',body:JSON.stringify({name,triggers:trigs,aliases:als})});
+  if(r.ok||r.id){
+    scDB.entities[name]={triggers:trigs.split(',').map(s=>s.trim().toLowerCase()).filter(Boolean),aliases:als.split(',').map(s=>s.trim().toLowerCase()).filter(Boolean)};
+    ['sc-nEnt','sc-nEntT','sc-nEntA'].forEach(id=>scI(id).value='');
+    scRenderEntities();scToast("Nom qo'shildi ✓");
+  } else scToast(r.error||'Xatolik','err');
 }
-function scEditEntity(k){
+async function scEditEntity(k){
   const e=scDB.entities[k]||{};
   scI('sc-nEnt').value=k;
-  scI('sc-nEntT').value=(Array.isArray(e)?e:(e.triggers||[])).join(', ');
+  scI('sc-nEntT').value=(e.triggers||[]).join(', ');
   scI('sc-nEntA').value=(e.aliases||[]).join(', ');
-  delete scDB.entities[k];scSaveDB('entities');scRenderEntities();scToast('Tahrirga olindi','info');
+  scToast('Forma to'ldirildi','info');
 }
-function scDelEntity(k){if(!confirm("O'chirasizmi?"))return;delete scDB.entities[k];scSaveDB('entities');scRenderEntities();scToast("O'chirildi");}
-function scAddFact(){
+async function scDelEntity(name){
+  if(!confirm("O'chirasizmi?"))return;
+  const rows=await scApi('/api/sc/entities');
+  const found=(rows||[]).find(e=>e.name===name);
+  if(found) await scApi('/api/sc/entities/'+found.id,{method:'DELETE'});
+  delete scDB.entities[name];
+  scRenderEntities();scToast("O'chirildi");
+}
+
+// ── CRUD: Fact ────────────────────────────────────
+async function scAddFact(){
   const t=scI('sc-fT').value,e=scI('sc-fE').value,r=scI('sc-fR').value.trim();
   const vRaw=scI('sc-fV').value.trim();
   if(!t||!e) return scToast('Savol va nom tanlang','err');
   if(!r||r.length<2) return scToast("Javob bo'sh yoki qisqa",'err');
-  const key=t+'__'+e;
   const variants=vRaw?vRaw.split(',').map(s=>s.trim()).filter(Boolean):[];
-  scDB.facts[key]={reply:r,variants,score:5,useCount:0,correctCount:0,wrongCount:0,
-    createdAt:new Date().toISOString(),lastUsed:null,
-    sm2:{interval:1,ef:2.5,reps:0,nextReviewAt:scAddDays(1).toISOString()}};
-  scSaveDB('facts');['sc-fR','sc-fV'].forEach(id=>scI(id).value='');
-  scRenderFacts();scToast("Ma'lumot saqlandi ✓");scUpdateTop();
+  const res=await scApi('/api/sc/facts',{method:'POST',body:JSON.stringify({trigger_word:t,entity:e,reply:r,variants})});
+  if(res.ok||res.id){
+    const key=t+'__'+e;
+    scDB.facts[key]={reply:r,variants,score:5,useCount:0,correctCount:0,wrongCount:0,sm2:{},_id:res.id};
+    ['sc-fR','sc-fV'].forEach(id=>scI(id).value='');
+    // entities/triggers xotirani yangilash
+    if(!scDB.entities[e]) scDB.entities[e]={triggers:[t],aliases:[]};
+    if(!scDB.triggers.includes(t)) scDB.triggers.push(t);
+    scRenderFacts();scToast("Ma'lumot saqlandi ✓");scUpdateTop();
+  } else scToast(res.error||'Xatolik','err');
 }
-function scEditFact(k){
+async function scEditFact(k){
   const v=scDB.facts[k];if(!v)return;
   scI('sc-fR').value=typeof v==='object'?v.reply:v;
   scI('sc-fV').value=(v.variants||[]).join(', ');
@@ -2328,38 +2444,76 @@ function scEditFact(k){
   [...fE.options].forEach((o,i)=>{if(o.value===e)fE.selectedIndex=i;});
   scToast('Tahrirga olindi','info');
 }
-function scDelFact(k){if(!confirm("O'chirasizmi?"))return;delete scDB.facts[k];scSaveDB('facts');scRenderFacts();scToast("O'chirildi");scUpdateTop();}
-function scAddAlias(){
+async function scDelFact(k){
+  if(!confirm("O'chirasizmi?"))return;
+  const fid=scDB.facts[k]?._id;
+  if(fid) await scApi('/api/sc/facts/'+fid,{method:'DELETE'});
+  delete scDB.facts[k];
+  scRenderFacts();scToast("O'chirildi");scUpdateTop();
+}
+
+// ── CRUD: Alias ───────────────────────────────────
+async function scAddAlias(){
   const words=scI('sc-aW').value.split(',').map(s=>s.trim().toLowerCase()).filter(Boolean);
   const reply=scI('sc-aR').value.trim();
   const fuzz=parseInt(scI('sc-aFuzz').value)||80;
   if(words.length<2) return scToast("Kamida 2 ta so'z kiriting",'err');
   if(!reply) return scToast("Javob bo'sh",'err');
-  scDB.aliases.push({words,reply,fuzz});scSaveDB('aliases');
-  ['sc-aW','sc-aR'].forEach(id=>scI(id).value='');
-  scRenderAliases();scToast("Guruh qo'shildi ✓");
+  const r=await scApi('/api/sc/aliases',{method:'POST',body:JSON.stringify({words,reply,fuzz})});
+  if(r.ok||r.id){
+    scDB.aliases.push({_id:r.id,words,reply,fuzz});
+    ['sc-aW','sc-aR'].forEach(id=>scI(id).value='');
+    scRenderAliases();scToast("Guruh qo'shildi ✓");
+  } else scToast(r.error||'Xatolik','err');
 }
-function scDelAlias(i){if(!confirm("O'chirasizmi?"))return;scDB.aliases.splice(i,1);scSaveDB('aliases');scRenderAliases();scToast("O'chirildi");}
-function scAddBlock(){
-  const w=scI('sc-bW').value.trim().toLowerCase(),r=scI('sc-bR').value.trim();
-  if(!w||!r) return scToast('Ikkalasi ham to\'ldirilsin','err');
-  if(scDB.blocklist[w]) return scToast('Allaqachon taqiqlangan','err');
-  scDB.blocklist[w]=r;scSaveDB('blocklist');
-  ['sc-bW','sc-bR'].forEach(id=>scI(id).value='');
-  scRenderBlocklist();scToast('Taqiqlandi ✓');
+async function scDelAlias(id){
+  if(!confirm("O'chirasizmi?"))return;
+  await scApi('/api/sc/aliases/'+id,{method:'DELETE'});
+  scDB.aliases=scDB.aliases.filter(a=>a._id!==id);
+  scRenderAliases();scToast("O'chirildi");
 }
-function scDelBlock(k){if(!confirm("O'chirasizmi?"))return;delete scDB.blocklist[k];scSaveDB('blocklist');scRenderBlocklist();scToast("O'chirildi");}
-function scAddCtx(){
+
+// ── CRUD: Blocklist ───────────────────────────────
+async function scAddBlock(){
+  const word=scI('sc-bW').value.trim().toLowerCase();
+  const reply=scI('sc-bR').value.trim();
+  if(!word||!reply) return scToast("Ikkalasi ham to'ldirilsin",'err');
+  const r=await scApi('/api/sc/blocklist',{method:'POST',body:JSON.stringify({word,reply})});
+  if(r.ok||r.id){
+    scDB.blocklist[word]=reply;
+    ['sc-bW','sc-bR'].forEach(id=>scI(id).value='');
+    scRenderBlocklist();scToast('Taqiqlandi ✓');
+  } else scToast(r.error||'Xatolik','err');
+}
+async function scDelBlock(word){
+  if(!confirm("O'chirasizmi?"))return;
+  const rows=await scApi('/api/sc/blocklist');
+  const found=(rows||[]).find(b=>b.word===word);
+  if(found) await scApi('/api/sc/blocklist/'+found.id,{method:'DELETE'});
+  delete scDB.blocklist[word];
+  scRenderBlocklist();scToast("O'chirildi");
+}
+
+// ── CRUD: LTM ─────────────────────────────────────
+async function scAddCtx(){
   const k=scI('sc-ctxK').value.trim().toLowerCase();
   const v=scI('sc-ctxV').value.trim();
-  const c=parseFloat(scI('sc-ctxConf').value)||0.9;
-  if(!k||!v) return scToast('Ikkalasi ham to\'ldirilsin','err');
-  scRememberLTM(k,v,c,'manual');
+  const conf=parseFloat(scI('sc-ctxConf').value)||0.9;
+  if(!k||!v) return scToast("Ikkalasi ham to'ldirilsin",'err');
+  await scApi('/api/sc/ltm',{method:'POST',body:JSON.stringify({key:k,value:v,confidence:conf,source:'manual'})});
+  scRememberLTM(k,v,conf,'manual');
   ['sc-ctxK','sc-ctxV'].forEach(id=>scI(id).value='');
   scRenderLTM();scToast('Kontekst saqlandi ✓');
 }
-function scDelLTM(k){delete scDB.ltm[k];scSaveDB('ltm');scRenderLTM();scToast("O'chirildi");}
-function scClearLTM(){if(!confirm('LTM tozalash?'))return;scDB.ltm={};scSaveDB('ltm');scRenderLTM();scToast('Tozalandi');}
+async function scDelLTM(k){
+  await scApi('/api/sc/ltm/'+encodeURIComponent(k),{method:'DELETE'});
+  delete scDB.ltm[k];scRenderLTM();scToast("O'chirildi");
+}
+async function scClearLTM(){
+  if(!confirm('LTM tozalash?'))return;
+  await scApi('/api/sc/ltm/clear',{method:'POST'});
+  scDB.ltm={};scRenderLTM();scToast('Tozalandi');
+}
 
 // ── SM-2 ─────────────────────────────────────────
 function scUpdateSM2(key,quality){
@@ -2744,27 +2898,44 @@ function scToggleVoice(){
 }
 
 // ── Personality ───────────────────────────────────
-function scSavePers(){
-  scDB.personality.brief=+scI('sc-sB').value;
-  scDB.personality.formal=+scI('sc-sF2').value;
-  scDB.personality.extra=+scI('sc-sE').value;
-  scI('sc-sBV').textContent=scDB.personality.brief;
-  scI('sc-sFV').textContent=scDB.personality.formal;
-  scI('sc-sEV').textContent=scDB.personality.extra;
-  scSaveDB('pers');
+async function scSavePers(){
+  scDB.personality.brief  = +scI('sc-sB').value;
+  scDB.personality.formal = +scI('sc-sF2').value;
+  scDB.personality.extra  = +scI('sc-sE').value;
+  scI('sc-sBV').textContent = scDB.personality.brief;
+  scI('sc-sFV').textContent = scDB.personality.formal;
+  scI('sc-sEV').textContent = scDB.personality.extra;
+  await scSaveDB('pers');
 }
-function scSaveAiName(){
-  const n=scI('sc-aiN').value.trim()||'Samarali AI';
-  scDB.personality.name=n;scSaveDB('pers');scToast('Ism saqlandi ✓');scUpdateTop();
+async function scSaveAiName(){
+  const n = scI('sc-aiN').value.trim()||'Samarali AI';
+  scDB.personality.name = n;
+  await scSaveDB('pers');
+  scToast('Ism saqlandi ✓'); scUpdateTop();
 }
-function scSavePrefix(){scDB.personality.prefix=scI('sc-aiPfx').value;scSaveDB('pers');scToast('Prefix saqlandi ✓');}
-function scSetMood(e,l){scDB.personality.mood=e+' '+l;scSaveDB('pers');scUpdateTop();scRenderPers();scToast("Kayfiyat o'zgartirildi");}
-function scSaveMemSize(){scDB.memSize=+scI('sc-memS').value;scI('sc-memSV').textContent=scDB.memSize;scLSS('memSize',scDB.memSize);}
-function scSaveDefault(){
-  const v=scI('sc-defR').value.trim();
-  if(!v)return scToast("Bo'sh bo'lmaydi",'err');
-  scDB.defaultReply=v;scSaveDB('default');
-  scI('sc-defP').textContent=v;scI('sc-defR').value='';
+async function scSavePrefix(){
+  scDB.personality.prefix = scI('sc-aiPfx').value;
+  await scSaveDB('pers');
+  scToast('Prefix saqlandi ✓');
+}
+async function scSetMood(e,l){
+  scDB.personality.mood = e+' '+l;
+  await scSaveDB('pers');
+  scUpdateTop(); scRenderPers(); scToast("Kayfiyat o'zgartirildi");
+}
+async function scSaveMemSize(){
+  scDB.memSize = +scI('sc-memS').value;
+  scI('sc-memSV').textContent = scDB.memSize;
+  scDB.personality.memSize = scDB.memSize;
+  await scSaveDB('pers');
+}
+async function scSaveDefault(){
+  const v = scI('sc-defR').value.trim();
+  if(!v) return scToast("Bo'sh bo'lmaydi",'err');
+  scDB.defaultReply = v;
+  await scApi('/api/sc/default',{method:'POST',body:JSON.stringify({text:v})});
+  scI('sc-defP').textContent = v;
+  scI('sc-defR').value = '';
   scToast('Standart javob saqlandi ✓');
 }
 
@@ -2823,21 +2994,20 @@ function scPreviewBulk(){
 function scSubmitBulk(){
   const raw=scI('sc-bulkInput').value.trim();if(!raw)return scToast("Ma'lumot kiriting",'err');
   const rows=scParseBulkData(raw,scI('sc-bulkFmt').value);if(!rows||!rows.length)return scToast('Hech narsa topilmadi','err');
-  let added=0,updated=0,errors=0;
-  rows.forEach(({trigger,entity,reply,variants})=>{
-    if(!trigger||!entity||!reply){errors++;return;}
-    if(!scDB.entities[entity])scDB.entities[entity]={triggers:[trigger],aliases:[]};
-    else if(!(scDB.entities[entity].triggers||[]).includes(trigger))(scDB.entities[entity].triggers=scDB.entities[entity].triggers||[]).push(trigger);
-    if(!scDB.triggers.includes(trigger))scDB.triggers.push(trigger);
-    const key=trigger+'__'+entity;
-    if(scDB.facts[key])updated++;else added++;
-    scDB.facts[key]={reply,variants:variants||[],score:5,useCount:0,correctCount:0,wrongCount:0,
-      createdAt:new Date().toISOString(),lastUsed:null,sm2:{interval:1,ef:2.5,reps:0,nextReviewAt:scAddDays(1).toISOString()}};
+  scApi('/api/sc/bulk',{method:'POST',body:JSON.stringify({rows})}).then(r=>{
+    if(r.ok){
+      // local cache yangilash
+      rows.forEach(({trigger,entity,reply,variants})=>{
+        if(!trigger||!entity||!reply)return;
+        if(!scDB.entities[entity])scDB.entities[entity]={triggers:[trigger],aliases:[]};
+        if(!scDB.triggers.includes(trigger))scDB.triggers.push(trigger);
+        scDB.facts[trigger+'__'+entity]={reply,variants:variants||[],score:5,useCount:0,sm2:{}};
+      });
+      scI('sc-bulkInput').value='';scI('sc-bulkPreview').innerHTML='';
+      scRenderFacts();scRenderEntities();scRenderTriggers();scUpdateTop();
+      scToast('✓ Qo\'shildi: '+r.added+', yangilandi: '+r.updated+', xato: '+r.errors,'ok');
+    } else scToast(r.error||'Xatolik','err');
   });
-  scSaveDB('facts');scSaveDB('entities');scSaveDB('triggers');
-  scI('sc-bulkInput').value='';scI('sc-bulkPreview').innerHTML='';
-  scRenderFacts();scRenderEntities();scRenderTriggers();scUpdateTop();
-  scToast(`✓ Qo'shildi: ${added}, yangilandi: ${updated}, xato: ${errors}`,'ok');
 }
 function scImportCSVFile(){
   const file=scI('sc-csvFile').files[0];if(!file)return scToast('Fayl tanlanmagan','err');
@@ -2847,42 +3017,51 @@ function scImportCSVFile(){
 }
 
 // ── Export/Import/Reset ───────────────────────────
-function scExportDB(){
-  const data={triggers:scDB.triggers,entities:scDB.entities,facts:scDB.facts,
-    aliases:scDB.aliases,blocklist:scDB.blocklist,defaultReply:scDB.defaultReply,
-    ltm:scDB.ltm,episodic:scDB.episodic,personality:scDB.personality,
-    stats:scDB.stats,learnLog:scDB.learnLog,exportedAt:new Date().toISOString(),version:'3.0'};
-  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
-  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
-  a.download='samarali_ai_v3_'+new Date().toISOString().slice(0,10)+'.json';a.click();
+async function scExportDB(){
+  const r = await scApi('/api/sc/export');
+  if(!r || r.error) return scToast('Eksport xatosi','err');
+  const blob = new Blob([JSON.stringify(r,null,2)],{type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'samarali_ai_v3_'+new Date().toISOString().slice(0,10)+'.json';
+  a.click();
   scToast('Eksport tayyor ✓');
 }
-function scImportDB(){
-  const file=scI('sc-impFile').files[0];if(!file)return scToast('Fayl tanlanmagan','err');
-  const reader=new FileReader();
-  reader.onload=e=>{
+async function scImportDB(){
+  const file = scI('sc-impFile').files[0];
+  if(!file) return scToast('Fayl tanlanmagan','err');
+  const reader = new FileReader();
+  reader.onload = async(e)=>{
     try{
-      const d=JSON.parse(e.target.result);
-      ['triggers','entities','facts','aliases','blocklist','ltm','episodic','personality','stats','learnLog'].forEach(k=>{if(d[k]!==undefined)scDB[k]=d[k];});
-      if(d.defaultReply)scDB.defaultReply=d.defaultReply;
-      scSaveAll();scRenderAll();scUpdateTop();
-      scToast('Import muvaffaqiyatli ✓ ('+Object.keys(scDB.facts).length+' ta bilim)','ok');
+      const d = JSON.parse(e.target.result);
+      // Serverga yuborish
+      const r = await scApi('/api/sc/import',{method:'POST',body:JSON.stringify(d)});
+      if(r.ok){
+        await scLoadAll(); scRenderAll(); scUpdateTop();
+        scToast('Import muvaffaqiyatli ✓ ('+r.imported+' ta yozuv)','ok');
+      } else scToast('Import xatosi','err');
     }catch(err){scToast('JSON xatosi: '+err.message,'err');}
   };
   reader.readAsText(file,'utf-8');
 }
-function scNukeDB(){
+async function scNukeDB(){
   if(!confirm("BARCHA MA'LUMOT O'CHIRILADI!"))return;
   if(!confirm('Ikkinchi marta tasdiqlang!'))return;
-  ['triggers','entities','facts','aliases','blocklist','default','ltm','episodic','pers','stats','learnLog','pending','autoLearn','ctxLearn','memSize'].forEach(k=>localStorage.removeItem('sai3_'+k));
-  location.reload();
+  await scApi('/api/sc/nuke',{method:'POST'});
+  await scLoadAll(); scRenderAll(); scUpdateTop();
+  scToast('Barcha ma\'lumotlar o\'chirildi','ok');
 }
-function scResetStats(){
+async function scResetStats(){
   if(!confirm('Statistikani tozalash?'))return;
+  await scApi('/api/sc/stats/reset',{method:'POST'});
   scDB.stats={total:0,learned:0,correct:0,wrong:0,topicMap:{},dayMap:{},feedPos:0,feedNeg:0,rejected:0};
-  scSaveDB('stats');scRenderAnalytics();scUpdateTop();scToast('Statistika tozalandi');
+  scRenderAnalytics();scUpdateTop();scToast('Statistika tozalandi');
 }
-function scClearLog(){if(!confirm('Log tozalash?'))return;scDB.learnLog=[];scSaveDB('learnLog');scRenderLog();scToast('Log tozalandi');}
+async function scClearLog(){
+  if(!confirm('Log tozalash?'))return;
+  await scApi('/api/sc/log/clear',{method:'POST'});
+  scDB.learnLog=[];scRenderLog();scToast('Log tozalandi');
+}
 
 // ── Input handlers ────────────────────────────────
 const scCi=scI('sc-ci');
@@ -2895,19 +3074,22 @@ scI('sc-ctxTgl')?.addEventListener('change',function(){scDB.ctxLearn=this.checke
 
 // ── Init ──────────────────────────────────────────
 scRenderBulkHelp();
-(function scInit(){
-  const aiName=scDB.personality.name||'Samarali AI';
-  const fCount=Object.keys(scDB.facts).length;
-  const ltmCount=Object.keys(scDB.ltm).length;
-  const name=scGetLTMValue('user_name');
-  let greeting=`Assalomu alaykum${name?', '+name:''}! Men ${aiName} — qo'lda o'qitiluvchi AI intellekt (v3).`;
-  greeting+='\n\nHozir '+fCount+' ta bilim birligi va '+ltmCount+' ta xotira yozuvim bor.';
-  if(fCount===0)greeting+="\n\n🎓 Boshlash uchun o'qitish panelini oching va bilim qo'shing!";
+(async function scInit(){
+  // SQLite dan ma'lumotlarni yuklaymiz (qayta yuklanishda ham saqlanadi)
+  await scLoadAll();
+
+  const aiName  = scDB.personality.name || 'Samarali AI';
+  const fCount  = Object.keys(scDB.facts).length;
+  const ltmCount= Object.keys(scDB.ltm).length;
+  const name    = scGetLTMValue('user_name');
+  let greeting  = `Assalomu alaykum${name?', '+name:''}! Men ${aiName} — AI intellekt (v3).`;
+  greeting += '\n\nHozir '+fCount+' ta bilim birligi va '+ltmCount+' ta xotira yozuvim bor.';
+  if(fCount===0) greeting += "\n\n🎓 Boshlash uchun o'qitish panelini oching va bilim qo'shing!";
   scAppendMsg('ai',greeting,null,null);
-  scUpdateTop();scUpdateChips();
-  scI('sc-defP').textContent=scDB.defaultReply;
-  scI('sc-alTgl').checked=scDB.autoLearn;
-  scI('sc-ctxTgl').checked=scDB.ctxLearn;
+  scUpdateTop(); scUpdateChips();
+  if(scI('sc-defP'))   scI('sc-defP').textContent   = scDB.defaultReply;
+  if(scI('sc-alTgl'))  scI('sc-alTgl').checked       = scDB.autoLearn;
+  if(scI('sc-ctxTgl')) scI('sc-ctxTgl').checked      = scDB.ctxLearn;
 })();
 
 </script>

@@ -385,6 +385,106 @@ class Database:
             minutes INTEGER DEFAULT 0,
             words_learned INTEGER DEFAULT 0
         );
+
+        -- ═══ SAMARALI AI v3 — Python backend jadvallari ═══
+        -- sc_triggers: Savol so'zlar (nima, kim, qachon...)
+        CREATE TABLE IF NOT EXISTS sc_triggers (
+            id      INTEGER PRIMARY KEY AUTOINCREMENT,
+            word    TEXT NOT NULL UNIQUE,
+            enabled INTEGER DEFAULT 1,
+            added_at TEXT DEFAULT (datetime('now'))
+        );
+
+        -- sc_entities: Nomlar (mashina, poytaxt...)
+        CREATE TABLE IF NOT EXISTS sc_entities (
+            id       INTEGER PRIMARY KEY AUTOINCREMENT,
+            name     TEXT NOT NULL UNIQUE,
+            triggers TEXT DEFAULT '',
+            aliases  TEXT DEFAULT '',
+            added_at TEXT DEFAULT (datetime('now'))
+        );
+
+        -- sc_facts: Savol+Nom → Javob (SM-2 bilan)
+        CREATE TABLE IF NOT EXISTS sc_facts (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            trigger_word TEXT NOT NULL,
+            entity       TEXT NOT NULL,
+            reply        TEXT NOT NULL,
+            variants_json TEXT DEFAULT '[]',
+            score        REAL DEFAULT 5,
+            use_count    INTEGER DEFAULT 0,
+            correct_count INTEGER DEFAULT 0,
+            wrong_count  INTEGER DEFAULT 0,
+            sm2_json     TEXT DEFAULT '{}',
+            created_at   TEXT DEFAULT (datetime('now')),
+            updated_at   TEXT DEFAULT (datetime('now')),
+            UNIQUE(trigger_word, entity)
+        );
+
+        -- sc_aliases: Sinonim guruhlar
+        CREATE TABLE IF NOT EXISTS sc_aliases (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            words_json TEXT NOT NULL,
+            reply      TEXT NOT NULL,
+            fuzz       INTEGER DEFAULT 80,
+            added_at   TEXT DEFAULT (datetime('now'))
+        );
+
+        -- sc_blocklist: Taqiqlangan so'zlar
+        CREATE TABLE IF NOT EXISTS sc_blocklist (
+            id      INTEGER PRIMARY KEY AUTOINCREMENT,
+            word    TEXT NOT NULL UNIQUE,
+            reply   TEXT NOT NULL,
+            enabled INTEGER DEFAULT 1,
+            added_at TEXT DEFAULT (datetime('now'))
+        );
+
+        -- sc_ltm: Uzoq muddatli xotira
+        CREATE TABLE IF NOT EXISTS sc_ltm (
+            id       INTEGER PRIMARY KEY AUTOINCREMENT,
+            ltm_key  TEXT NOT NULL,
+            ltm_val  TEXT NOT NULL,
+            confidence REAL DEFAULT 0.8,
+            source   TEXT DEFAULT 'manual',
+            count    INTEGER DEFAULT 1,
+            learned_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_sc_ltm_key ON sc_ltm(ltm_key);
+
+        -- sc_personality: AI shaxsiyati
+        CREATE TABLE IF NOT EXISTS sc_personality (
+            id     INTEGER PRIMARY KEY CHECK (id=1),
+            data_json TEXT NOT NULL DEFAULT '{}'
+        );
+        INSERT OR IGNORE INTO sc_personality(id,data_json)
+        VALUES(1,'{"brief":5,"formal":5,"extra":3,"mood":"😐 Neytral","name":"Samarali AI","prefix":""}');
+
+        -- sc_default: Standart javob
+        CREATE TABLE IF NOT EXISTS sc_default (
+            id   INTEGER PRIMARY KEY CHECK (id=1),
+            text TEXT NOT NULL DEFAULT 'Hali bilmayman. O''rgatib qo''ysangiz, minnatdor bo''laman!'
+        );
+        INSERT OR IGNORE INTO sc_default(id,text)
+        VALUES(1,'Hali bilmayman. O''rgatib qo''ysangiz, minnatdor bo''laman!');
+
+        -- sc_stats: Statistika
+        CREATE TABLE IF NOT EXISTS sc_stats (
+            id         INTEGER PRIMARY KEY CHECK (id=1),
+            data_json  TEXT NOT NULL DEFAULT '{}'
+        );
+        INSERT OR IGNORE INTO sc_stats(id,data_json)
+        VALUES(1,'{"total":0,"learned":0,"correct":0,"wrong":0,"topicMap":{},"dayMap":{},"feedPos":0,"feedNeg":0,"rejected":0}');
+
+        -- sc_learn_log: O'rganish logi
+        CREATE TABLE IF NOT EXISTS sc_learn_log (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            q          TEXT,
+            a          TEXT,
+            trigger_w  TEXT,
+            entity     TEXT,
+            log_type   TEXT,
+            logged_at  TEXT DEFAULT (datetime('now'))
+        );
         """)
         self.conn.commit()
 
@@ -4102,6 +4202,534 @@ def panel_stats():
         "synonyms": db._row("SELECT COUNT(*) as c FROM ai_synonym_groups")["c"],
         "banned":   db._row("SELECT COUNT(*) as c FROM ai_banned_words")["c"],
     })
+
+
+# ══════════════════════════════════════════════════
+# SAMARALI AI v3 — Python backend API
+# LocalStorage → SQLite (barcha ma'lumotlar doimiy)
+# ══════════════════════════════════════════════════
+
+# ── Yordamchi funksiyalar ─────────────────────────
+def _sc_row(sql, params=()):
+    r = db._row(sql, params)
+    return dict(r) if r else None
+
+def _sc_rows(sql, params=()):
+    return db._rows(sql, params)
+
+def _sc_exec(sql, params=()):
+    db._exec(sql, params)
+
+def _sc_ins(sql, params=()):
+    return db._ins(sql, params)
+
+
+# ── 1. Triggers (Savol so'zlar) ───────────────────
+@app.route("/api/sc/triggers", methods=["GET"])
+@require_auth
+def sc_triggers_list():
+    return jsonify(_sc_rows(
+        "SELECT * FROM sc_triggers ORDER BY word"))
+
+@app.route("/api/sc/triggers", methods=["POST"])
+@require_auth
+def sc_triggers_add():
+    d    = request.get_json()
+    word = (d.get("word") or "").strip().lower()
+    if not word:
+        return jsonify({"error": "word kerak"}), 400
+    ex = _sc_row("SELECT id FROM sc_triggers WHERE word=?", (word,))
+    if ex:
+        return jsonify({"error": "Allaqachon bor", "id": ex["id"]}), 409
+    wid = _sc_ins(
+        "INSERT INTO sc_triggers(word) VALUES(?)", (word,))
+    return jsonify({"ok": True, "id": wid})
+
+@app.route("/api/sc/triggers/<int:wid>", methods=["DELETE"])
+@require_auth
+def sc_triggers_delete(wid):
+    _sc_exec("DELETE FROM sc_triggers WHERE id=?", (wid,))
+    return jsonify({"ok": True})
+
+@app.route("/api/sc/triggers/<int:wid>/toggle", methods=["POST"])
+@require_auth
+def sc_triggers_toggle(wid):
+    r = _sc_row("SELECT enabled FROM sc_triggers WHERE id=?", (wid,))
+    if not r:
+        return jsonify({"error": "topilmadi"}), 404
+    new = 0 if r["enabled"] else 1
+    _sc_exec("UPDATE sc_triggers SET enabled=? WHERE id=?", (new, wid))
+    return jsonify({"ok": True, "enabled": bool(new)})
+
+
+# ── 2. Entities (Nomlar) ──────────────────────────
+@app.route("/api/sc/entities", methods=["GET"])
+@require_auth
+def sc_entities_list():
+    return jsonify(_sc_rows(
+        "SELECT * FROM sc_entities ORDER BY name"))
+
+@app.route("/api/sc/entities", methods=["POST"])
+@require_auth
+def sc_entities_add():
+    d    = request.get_json()
+    name = (d.get("name") or "").strip().lower()
+    if not name:
+        return jsonify({"error": "name kerak"}), 400
+    ex = _sc_row("SELECT id FROM sc_entities WHERE name=?", (name,))
+    if ex:
+        # Yangilash
+        _sc_exec(
+            "UPDATE sc_entities SET triggers=?,aliases=? WHERE id=?",
+            (d.get("triggers",""), d.get("aliases",""), ex["id"]))
+        return jsonify({"ok": True, "id": ex["id"]})
+    eid = _sc_ins(
+        "INSERT INTO sc_entities(name,triggers,aliases) VALUES(?,?,?)",
+        (name, d.get("triggers",""), d.get("aliases","")))
+    return jsonify({"ok": True, "id": eid})
+
+@app.route("/api/sc/entities/<int:eid>", methods=["DELETE"])
+@require_auth
+def sc_entities_delete(eid):
+    row = _sc_row("SELECT name FROM sc_entities WHERE id=?", (eid,))
+    if row:
+        _sc_exec("DELETE FROM sc_facts WHERE entity=?", (row["name"],))
+    _sc_exec("DELETE FROM sc_entities WHERE id=?", (eid,))
+    return jsonify({"ok": True})
+
+
+# ── 3. Facts (Savol+Nom → Javob) ─────────────────
+@app.route("/api/sc/facts", methods=["GET"])
+@require_auth
+def sc_facts_list():
+    rows = _sc_rows("SELECT * FROM sc_facts ORDER BY updated_at DESC")
+    for r in rows:
+        try:
+            r["variants"] = json.loads(r.get("variants_json") or "[]")
+        except Exception:
+            r["variants"] = []
+        try:
+            r["sm2"] = json.loads(r.get("sm2_json") or "{}")
+        except Exception:
+            r["sm2"] = {}
+    return jsonify(rows)
+
+@app.route("/api/sc/facts", methods=["POST"])
+@require_auth
+def sc_facts_save():
+    d       = request.get_json()
+    trigger = (d.get("trigger_word") or d.get("trigger") or "").strip().lower()
+    entity  = (d.get("entity") or "").strip().lower()
+    reply   = (d.get("reply") or "").strip()
+    if not trigger or not entity or not reply:
+        return jsonify({"error": "trigger_word, entity, reply kerak"}), 400
+    variants = json.dumps(d.get("variants") or [], ensure_ascii=False)
+    sm2_def  = json.dumps({
+        "interval": 1, "ef": 2.5, "reps": 0,
+        "nextReviewAt": ""
+    })
+    # Avtomatik entity qo'shish
+    db.conn.execute(
+        "INSERT OR IGNORE INTO sc_entities(name,triggers) VALUES(?,?)",
+        (entity, trigger))
+    # Avtomatik trigger qo'shish
+    db.conn.execute(
+        "INSERT OR IGNORE INTO sc_triggers(word) VALUES(?)", (trigger,))
+    ex = _sc_row(
+        "SELECT id FROM sc_facts WHERE trigger_word=? AND entity=?",
+        (trigger, entity))
+    if ex:
+        _sc_exec(
+            "UPDATE sc_facts SET reply=?,variants_json=?,updated_at=datetime('now') WHERE id=?",
+            (reply, variants, ex["id"]))
+        db.conn.commit()
+        return jsonify({"ok": True, "id": ex["id"]})
+    fid = _sc_ins(
+        "INSERT INTO sc_facts(trigger_word,entity,reply,variants_json,sm2_json) VALUES(?,?,?,?,?)",
+        (trigger, entity, reply, variants, sm2_def))
+    db.conn.commit()
+    return jsonify({"ok": True, "id": fid})
+
+@app.route("/api/sc/facts/<int:fid>", methods=["DELETE"])
+@require_auth
+def sc_facts_delete(fid):
+    _sc_exec("DELETE FROM sc_facts WHERE id=?", (fid,))
+    return jsonify({"ok": True})
+
+@app.route("/api/sc/facts/<int:fid>/sm2", methods=["POST"])
+@require_auth
+def sc_facts_sm2(fid):
+    d       = request.get_json()
+    quality = d.get("quality", 3)
+    row     = _sc_row("SELECT * FROM sc_facts WHERE id=?", (fid,))
+    if not row:
+        return jsonify({"error": "topilmadi"}), 404
+    try:
+        sm2 = json.loads(row.get("sm2_json") or "{}")
+    except Exception:
+        sm2 = {}
+    interval = sm2.get("interval", 1)
+    ef       = sm2.get("ef", 2.5)
+    reps     = sm2.get("reps", 0)
+    if quality < 3:
+        reps = 0; interval = 1
+    else:
+        if   reps == 0: interval = 1
+        elif reps == 1: interval = 3
+        else:           interval = round(interval * ef)
+        reps += 1
+    ef = max(1.3, ef + 0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02))
+    from datetime import datetime, timedelta
+    next_review = (datetime.now() + timedelta(days=interval)).strftime("%Y-%m-%d")
+    sm2.update({"interval": interval, "ef": round(ef, 2), "reps": reps,
+                "nextReviewAt": next_review})
+    if quality >= 3:
+        _sc_exec("UPDATE sc_facts SET correct_count=correct_count+1,sm2_json=? WHERE id=?",
+                 (json.dumps(sm2), fid))
+    else:
+        _sc_exec("UPDATE sc_facts SET wrong_count=wrong_count+1,sm2_json=? WHERE id=?",
+                 (json.dumps(sm2), fid))
+    return jsonify({"ok": True, "sm2": sm2})
+
+
+# ── 4. Aliases (Sinonimlar) ───────────────────────
+@app.route("/api/sc/aliases", methods=["GET"])
+@require_auth
+def sc_aliases_list():
+    rows = _sc_rows("SELECT * FROM sc_aliases ORDER BY id")
+    for r in rows:
+        try:
+            r["words"] = json.loads(r.get("words_json") or "[]")
+        except Exception:
+            r["words"] = []
+    return jsonify(rows)
+
+@app.route("/api/sc/aliases", methods=["POST"])
+@require_auth
+def sc_aliases_save():
+    d     = request.get_json()
+    words = d.get("words") or []
+    reply = (d.get("reply") or "").strip()
+    fuzz  = int(d.get("fuzz") or 80)
+    bid   = d.get("id")
+    if len(words) < 2 or not reply:
+        return jsonify({"error": "kamida 2 so'z va reply kerak"}), 400
+    wj = json.dumps([w.lower() for w in words], ensure_ascii=False)
+    if bid:
+        _sc_exec("UPDATE sc_aliases SET words_json=?,reply=?,fuzz=? WHERE id=?",
+                 (wj, reply, fuzz, bid))
+        return jsonify({"ok": True, "id": bid})
+    aid = _sc_ins(
+        "INSERT INTO sc_aliases(words_json,reply,fuzz) VALUES(?,?,?)",
+        (wj, reply, fuzz))
+    return jsonify({"ok": True, "id": aid})
+
+@app.route("/api/sc/aliases/<int:aid>", methods=["DELETE"])
+@require_auth
+def sc_aliases_delete(aid):
+    _sc_exec("DELETE FROM sc_aliases WHERE id=?", (aid,))
+    return jsonify({"ok": True})
+
+
+# ── 5. Blocklist (Taqiqlangan so'zlar) ────────────
+@app.route("/api/sc/blocklist", methods=["GET"])
+@require_auth
+def sc_blocklist_list():
+    return jsonify(_sc_rows(
+        "SELECT * FROM sc_blocklist ORDER BY word"))
+
+@app.route("/api/sc/blocklist", methods=["POST"])
+@require_auth
+def sc_blocklist_save():
+    d    = request.get_json()
+    word = (d.get("word") or "").strip().lower()
+    rep  = (d.get("reply") or "").strip()
+    bid  = d.get("id")
+    if not word or not rep:
+        return jsonify({"error": "word va reply kerak"}), 400
+    if bid:
+        _sc_exec("UPDATE sc_blocklist SET word=?,reply=? WHERE id=?",
+                 (word, rep, bid))
+        return jsonify({"ok": True, "id": bid})
+    ex = _sc_row("SELECT id FROM sc_blocklist WHERE word=?", (word,))
+    if ex:
+        _sc_exec("UPDATE sc_blocklist SET reply=? WHERE id=?", (rep, ex["id"]))
+        return jsonify({"ok": True, "id": ex["id"]})
+    new_id = _sc_ins(
+        "INSERT INTO sc_blocklist(word,reply) VALUES(?,?)", (word, rep))
+    return jsonify({"ok": True, "id": new_id})
+
+@app.route("/api/sc/blocklist/<int:bid>", methods=["DELETE"])
+@require_auth
+def sc_blocklist_delete(bid):
+    _sc_exec("DELETE FROM sc_blocklist WHERE id=?", (bid,))
+    return jsonify({"ok": True})
+
+
+# ── 6. LTM (Uzoq muddatli xotira) ────────────────
+@app.route("/api/sc/ltm", methods=["GET"])
+@require_auth
+def sc_ltm_list():
+    rows = _sc_rows("SELECT * FROM sc_ltm ORDER BY ltm_key, confidence DESC")
+    # Guruhlab qaytarish
+    result = {}
+    for r in rows:
+        k = r["ltm_key"]
+        if k not in result:
+            result[k] = []
+        result[k].append(r)
+    return jsonify(result)
+
+@app.route("/api/sc/ltm", methods=["POST"])
+@require_auth
+def sc_ltm_save():
+    d   = request.get_json()
+    key = (d.get("key") or "").strip()
+    val = (d.get("value") or "").strip()
+    conf = float(d.get("confidence") or 0.8)
+    src  = d.get("source") or "manual"
+    if not key or not val:
+        return jsonify({"error": "key va value kerak"}), 400
+    # Mavjudligini tekshirish
+    ex = _sc_row(
+        "SELECT id,count FROM sc_ltm WHERE ltm_key=? AND ltm_val=?", (key, val))
+    if ex:
+        _sc_exec(
+            "UPDATE sc_ltm SET confidence=MIN(1.0,confidence+0.05),count=count+1 WHERE id=?",
+            (ex["id"],))
+        return jsonify({"ok": True, "id": ex["id"]})
+    lid = _sc_ins(
+        "INSERT INTO sc_ltm(ltm_key,ltm_val,confidence,source) VALUES(?,?,?,?)",
+        (key, val, conf, src))
+    return jsonify({"ok": True, "id": lid})
+
+@app.route("/api/sc/ltm/<key>", methods=["DELETE"])
+@require_auth
+def sc_ltm_delete(key):
+    _sc_exec("DELETE FROM sc_ltm WHERE ltm_key=?", (key,))
+    return jsonify({"ok": True})
+
+@app.route("/api/sc/ltm/clear", methods=["POST"])
+@require_auth
+def sc_ltm_clear():
+    _sc_exec("DELETE FROM sc_ltm")
+    return jsonify({"ok": True})
+
+
+# ── 7. Personality ────────────────────────────────
+@app.route("/api/sc/personality", methods=["GET"])
+@require_auth
+def sc_personality_get():
+    row = _sc_row("SELECT data_json FROM sc_personality WHERE id=1")
+    try:
+        return jsonify(json.loads(row["data_json"]) if row else {})
+    except Exception:
+        return jsonify({})
+
+@app.route("/api/sc/personality", methods=["POST"])
+@require_auth
+def sc_personality_save():
+    d = request.get_json()
+    _sc_exec(
+        "INSERT INTO sc_personality(id,data_json) VALUES(1,?) "
+        "ON CONFLICT(id) DO UPDATE SET data_json=excluded.data_json",
+        (json.dumps(d, ensure_ascii=False),))
+    return jsonify({"ok": True})
+
+
+# ── 8. Default javob ──────────────────────────────
+@app.route("/api/sc/default", methods=["GET"])
+@require_auth
+def sc_default_get():
+    row = _sc_row("SELECT text FROM sc_default WHERE id=1")
+    return jsonify({"text": row["text"] if row else ""})
+
+@app.route("/api/sc/default", methods=["POST"])
+@require_auth
+def sc_default_save():
+    text = (request.get_json().get("text") or "").strip()
+    if not text:
+        return jsonify({"error": "text kerak"}), 400
+    _sc_exec(
+        "INSERT INTO sc_default(id,text) VALUES(1,?) "
+        "ON CONFLICT(id) DO UPDATE SET text=excluded.data_json",
+        (text,))
+    _sc_exec(
+        "UPDATE sc_default SET text=? WHERE id=1", (text,))
+    return jsonify({"ok": True})
+
+
+# ── 9. Stats ──────────────────────────────────────
+@app.route("/api/sc/stats", methods=["GET"])
+@require_auth
+def sc_stats_get():
+    row = _sc_row("SELECT data_json FROM sc_stats WHERE id=1")
+    try:
+        return jsonify(json.loads(row["data_json"]) if row else {})
+    except Exception:
+        return jsonify({})
+
+@app.route("/api/sc/stats", methods=["POST"])
+@require_auth
+def sc_stats_save():
+    d = request.get_json()
+    _sc_exec(
+        "INSERT INTO sc_stats(id,data_json) VALUES(1,?) "
+        "ON CONFLICT(id) DO UPDATE SET data_json=excluded.data_json",
+        (json.dumps(d, ensure_ascii=False),))
+    return jsonify({"ok": True})
+
+@app.route("/api/sc/stats/reset", methods=["POST"])
+@require_auth
+def sc_stats_reset():
+    empty = json.dumps({
+        "total":0,"learned":0,"correct":0,"wrong":0,
+        "topicMap":{},"dayMap":{},"feedPos":0,"feedNeg":0,"rejected":0
+    })
+    _sc_exec("UPDATE sc_stats SET data_json=? WHERE id=1", (empty,))
+    return jsonify({"ok": True})
+
+
+# ── 10. Learn log ─────────────────────────────────
+@app.route("/api/sc/log", methods=["GET"])
+@require_auth
+def sc_log_list():
+    return jsonify(_sc_rows(
+        "SELECT * FROM sc_learn_log ORDER BY logged_at DESC LIMIT 50"))
+
+@app.route("/api/sc/log", methods=["POST"])
+@require_auth
+def sc_log_add():
+    d = request.get_json()
+    _sc_ins(
+        "INSERT INTO sc_learn_log(q,a,trigger_w,entity,log_type) VALUES(?,?,?,?,?)",
+        (d.get("q"), d.get("a"), d.get("trigger"), d.get("entity"), d.get("type")))
+    return jsonify({"ok": True})
+
+@app.route("/api/sc/log/clear", methods=["POST"])
+@require_auth
+def sc_log_clear():
+    _sc_exec("DELETE FROM sc_learn_log")
+    return jsonify({"ok": True})
+
+
+# ── 11. Bulk ma'lumot yuklanishi ──────────────────
+@app.route("/api/sc/bulk", methods=["POST"])
+@require_auth
+def sc_bulk():
+    rows    = request.get_json().get("rows") or []
+    added   = 0; updated = 0; errors = 0
+    sm2_def = json.dumps({"interval":1,"ef":2.5,"reps":0,"nextReviewAt":""})
+    for r in rows:
+        trigger = (r.get("trigger") or "").strip().lower()
+        entity  = (r.get("entity")  or "").strip().lower()
+        reply   = (r.get("reply")   or "").strip()
+        if not trigger or not entity or not reply:
+            errors += 1; continue
+        db.conn.execute(
+            "INSERT OR IGNORE INTO sc_entities(name,triggers) VALUES(?,?)",
+            (entity, trigger))
+        db.conn.execute(
+            "INSERT OR IGNORE INTO sc_triggers(word) VALUES(?)", (trigger,))
+        ex = _sc_row(
+            "SELECT id FROM sc_facts WHERE trigger_word=? AND entity=?",
+            (trigger, entity))
+        variants = json.dumps(r.get("variants") or [], ensure_ascii=False)
+        if ex:
+            _sc_exec(
+                "UPDATE sc_facts SET reply=?,variants_json=? WHERE id=?",
+                (reply, variants, ex["id"]))
+            updated += 1
+        else:
+            _sc_ins(
+                "INSERT INTO sc_facts(trigger_word,entity,reply,variants_json,sm2_json) VALUES(?,?,?,?,?)",
+                (trigger, entity, reply, variants, sm2_def))
+            added += 1
+    db.conn.commit()
+    return jsonify({"ok": True, "added": added, "updated": updated, "errors": errors})
+
+
+# ── 12. Export/Import (to'liq DB) ─────────────────
+@app.route("/api/sc/export", methods=["GET"])
+@require_auth
+def sc_export():
+    data = {
+        "version":   "3.0",
+        "exported_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "triggers":  _sc_rows("SELECT * FROM sc_triggers"),
+        "entities":  _sc_rows("SELECT * FROM sc_entities"),
+        "facts":     _sc_rows("SELECT * FROM sc_facts"),
+        "aliases":   _sc_rows("SELECT * FROM sc_aliases"),
+        "blocklist": _sc_rows("SELECT * FROM sc_blocklist"),
+        "ltm":       _sc_rows("SELECT * FROM sc_ltm"),
+        "learn_log": _sc_rows("SELECT * FROM sc_learn_log ORDER BY id DESC LIMIT 200"),
+    }
+    row_p = _sc_row("SELECT data_json FROM sc_personality WHERE id=1")
+    row_d = _sc_row("SELECT text FROM sc_default WHERE id=1")
+    row_s = _sc_row("SELECT data_json FROM sc_stats WHERE id=1")
+    try:
+        data["personality"] = json.loads(row_p["data_json"]) if row_p else {}
+    except Exception:
+        data["personality"] = {}
+    data["default_reply"] = row_d["text"] if row_d else ""
+    try:
+        data["stats"] = json.loads(row_s["data_json"]) if row_s else {}
+    except Exception:
+        data["stats"] = {}
+    return jsonify(data)
+
+@app.route("/api/sc/import", methods=["POST"])
+@require_auth
+def sc_import():
+    d = request.get_json()
+    added = 0
+    sm2d  = json.dumps({"interval":1,"ef":2.5,"reps":0,"nextReviewAt":""})
+    for t in (d.get("triggers") or []):
+        db.conn.execute(
+            "INSERT OR IGNORE INTO sc_triggers(word,enabled) VALUES(?,?)",
+            (t.get("word",""), t.get("enabled",1)))
+        added += 1
+    for e in (d.get("entities") or []):
+        db.conn.execute(
+            "INSERT OR REPLACE INTO sc_entities(name,triggers,aliases) VALUES(?,?,?)",
+            (e.get("name",""), e.get("triggers",""), e.get("aliases","")))
+        added += 1
+    for f in (d.get("facts") or []):
+        db.conn.execute(
+            "INSERT OR REPLACE INTO sc_facts(trigger_word,entity,reply,variants_json,score,sm2_json) VALUES(?,?,?,?,?,?)",
+            (f.get("trigger_word",""), f.get("entity",""), f.get("reply",""),
+             f.get("variants_json","[]"), f.get("score",5), f.get("sm2_json",sm2d)))
+        added += 1
+    for a in (d.get("aliases") or []):
+        db.conn.execute(
+            "INSERT OR IGNORE INTO sc_aliases(words_json,reply,fuzz) VALUES(?,?,?)",
+            (a.get("words_json","[]"), a.get("reply",""), a.get("fuzz",80)))
+        added += 1
+    for b in (d.get("blocklist") or []):
+        db.conn.execute(
+            "INSERT OR REPLACE INTO sc_blocklist(word,reply) VALUES(?,?)",
+            (b.get("word",""), b.get("reply","")))
+        added += 1
+    if d.get("personality"):
+        _sc_exec(
+            "UPDATE sc_personality SET data_json=? WHERE id=1",
+            (json.dumps(d["personality"], ensure_ascii=False),))
+    if d.get("default_reply"):
+        _sc_exec("UPDATE sc_default SET text=? WHERE id=1", (d["default_reply"],))
+    db.conn.commit()
+    return jsonify({"ok": True, "imported": added})
+
+
+# ── 13. Nuke (hammasini o'chirish) ────────────────
+@app.route("/api/sc/nuke", methods=["POST"])
+@require_auth
+def sc_nuke():
+    for tbl in ["sc_triggers","sc_entities","sc_facts","sc_aliases",
+                "sc_blocklist","sc_ltm","sc_learn_log"]:
+        _sc_exec(f"DELETE FROM {tbl}")
+    _sc_exec("UPDATE sc_stats SET data_json=? WHERE id=1",
+             ('{"total":0,"learned":0,"correct":0,"wrong":0,"topicMap":{},"dayMap":{},"feedPos":0,"feedNeg":0,"rejected":0}',))
+    return jsonify({"ok": True})
 
 
 # ── Notify test ────────────────────────────────────
