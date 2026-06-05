@@ -1,0 +1,11 @@
+# API kalitlar — HECH QACHON GitHub ga yuklanmaydi!
+.env
+*.env
+
+# Database
+data/
+*.db
+
+# Python
+__pycache__/
+*.pyc
