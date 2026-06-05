@@ -112,12 +112,9 @@ function navigate(page){
     grammar:    loadGrammar,
     games:      loadGameHighscores,
     quiz:       ()=>{},
-    chat:       ()=>{ loadChatHistory(); _updateOfflineBadge(); },
     schedule:   loadSchedule,
     progress:   loadProgress,
     settings:   loadSettings,
-    adaptive:   loadAdaptivePage,
-    roleplay:   loadRoleplayPage,
   };
   if(loaders[page]) loaders[page]();
 }
@@ -1068,630 +1065,56 @@ async function finishGame(){
 // AI CHAT v4 — SMART, IKKI TIL, AI O'QITISH
 // ══════════════════════════════════════════════════
 
-const Chat = {
-  mode: "text", level: "beginner", topic: "free",
-  customTopic: "", personality: "teacher",
-  isTyping: false, msgCount: 0,
-  ttsEnabled: true, ttsSpeed: 0.9, ttsVoice: null,
-  micActive: false, recognition: null,
-  uiLang: "auto",        // "auto" | "uz" | "ru"
-  pendingTeach: null,    // { question, hint }
-};
 
-const TOPIC_META = {
-  free:{icon:"✨",label:"Erkin"},greet:{icon:"👋",label:"Salomlashish"},
-  travel:{icon:"✈️",label:"Sayohat"},food:{icon:"🍎",label:"Ovqat"},
-  family:{icon:"👨‍👩‍👧",label:"Oila"},weather:{icon:"🌤️",label:"Ob-havo"},
-  numbers:{icon:"🔢",label:"Raqamlar"},hobbies:{icon:"🎯",label:"Qiziqishlar"},
-  school:{icon:"🏫",label:"Maktab"},work:{icon:"💼",label:"Ish"},
-  health:{icon:"🏥",label:"Sog'liq"},sport:{icon:"⚽",label:"Sport"},
-  city:{icon:"🏙️",label:"Shahar"},shopping:{icon:"🛍️",label:"Xarid"},
-  cinema:{icon:"🎬",label:"Kino"},tech:{icon:"💻",label:"Texno"},
-};
+
+
 
 
 // ══════════════════════════════════════════════════
 // TTS
 // ══════════════════════════════════════════════════
-function ttsInit(){
-  if(!window.speechSynthesis) return;
-  const set=()=>{
-    const vs=speechSynthesis.getVoices();
-    Chat.ttsVoice=vs.find(v=>v.lang.startsWith("ru"))||vs.find(v=>v.lang.startsWith("en"))||vs[0]||null;
-  };
-  if(speechSynthesis.getVoices().length) set();
-  speechSynthesis.addEventListener("voiceschanged",set);
-}
-
-function ttsSpeak(text,auto=false){
-  if(!window.speechSynthesis) return;
-  if(!auto&&!Chat.ttsEnabled) return;
-  speechSynthesis.cancel();
-  const clean=text.replace(/\(.*?\)/g,"").replace(/\[.*?\]/g,"")
-    .replace(/[🎉✅❌📝💡👋🤖🇷🇺🇺🇿⭐🔊📵✨❓]/gu,"")
-    .replace(/\n+/g,". ").replace(/[*_~`]/g,"").trim();
-  if(!clean) return;
-  const u=new SpeechSynthesisUtterance(clean);
-  u.lang="ru-RU"; u.rate=Chat.ttsSpeed; u.pitch=1;
-  if(Chat.ttsVoice) u.voice=Chat.ttsVoice;
-  u.onend=u.onerror=()=>document.querySelectorAll(".tts-msg-btn.playing").forEach(b=>{b.classList.remove("playing");b.textContent="🔊";});
-  speechSynthesis.speak(u);
-}
-
-function ttsSpeakEl(btn){
-  const text=btn.dataset.text||""; if(!text) return;
-  if(btn.classList.contains("playing")){speechSynthesis.cancel();btn.classList.remove("playing");btn.textContent="🔊";return;}
-  document.querySelectorAll(".tts-msg-btn.playing").forEach(b=>{b.classList.remove("playing");b.textContent="🔊";});
-  btn.classList.add("playing"); btn.textContent="⏹";
-  const u=new SpeechSynthesisUtterance(text);
-  u.lang="ru-RU"; u.rate=Chat.ttsSpeed;
-  if(Chat.ttsVoice) u.voice=Chat.ttsVoice;
-  u.onend=u.onerror=()=>{btn.classList.remove("playing");btn.textContent="🔊";};
-  speechSynthesis.speak(u);
-}
-
-function ttsToggleGlobal(){
-  Chat.ttsEnabled=!Chat.ttsEnabled;
-  const lbl=$("ttsGlobalLabel"),btn=$("ttsGlobalBtn"),ctb=$("ctbTts");
-  if(lbl) lbl.textContent=Chat.ttsEnabled?"ON":"OFF";
-  if(btn) btn.classList.toggle("tts-off",!Chat.ttsEnabled);
-  if(ctb) ctb.textContent=Chat.ttsEnabled?"🔊":"🔇";
-  _activateGroup("cspTts",Chat.ttsEnabled?"on":"off");
-  if(!Chat.ttsEnabled) speechSynthesis.cancel?.();
-  api("/api/chat/settings",{method:"POST",body:JSON.stringify({ai_tts_enabled:Chat.ttsEnabled?"on":"off"})});
-  toast(Chat.ttsEnabled?"🔊 Ovoz yoqildi":"🔇 Ovoz o'chirildi","info",1500);
-}
-
-function ttsSpeedChange(val){
-  Chat.ttsSpeed=parseFloat(val);
-  const lbl=$("ttsSpeedLabel"); if(lbl) lbl.textContent=val+"x";
-  api("/api/chat/settings",{method:"POST",body:JSON.stringify({ai_tts_speed:val})});
-}
 
 
 // ══════════════════════════════════════════════════
 // STT — Mikrofon
 // ══════════════════════════════════════════════════
-function toggleMic(){
-  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-  if(!SR){toast("❌ Mikrofon qo'llab-quvvatlanmaydi","warn",3000);return;}
-  const btn=$("micBtn");
-  if(Chat.micActive){Chat.recognition?.stop();Chat.micActive=false;if(btn){btn.textContent="🎤";btn.classList.remove("mic-active");}return;}
-  const rec=new SR();
-  // til: o'zbek STT yo'q, rus STT ishlaydi
-  rec.lang=Chat.uiLang==="uz"?"uz-UZ":"ru-RU";
-  rec.continuous=false; rec.interimResults=true;
-  Chat.recognition=rec; Chat.micActive=true;
-  if(btn){btn.textContent="🔴";btn.classList.add("mic-active");}
-  toast("🎤 Gapiring...","info",3000);
-  rec.onresult=e=>{
-    const t=Array.from(e.results).map(r=>r[0].transcript).join("");
-    const inp=$("chatInput"); if(inp) inp.value=t;
-  };
-  rec.onend=()=>{Chat.micActive=false;if(btn){btn.textContent="🎤";btn.classList.remove("mic-active");}};
-  rec.onerror=e=>{toast("🎤 Xato: "+e.error,"warn",2000);Chat.micActive=false;if(btn){btn.textContent="🎤";btn.classList.remove("mic-active");}};
-  rec.start();
-}
 
 
 // ══════════════════════════════════════════════════
 // SAHIFANI YUKLASH
 // ══════════════════════════════════════════════════
-async function loadChatHistory(){
-  const s=await api("/api/chat/settings");
-  if(s&&!s.error){
-    if(s.ai_conversation_level) Chat.level=s.ai_conversation_level;
-    if(s.ai_chat_mode)          Chat.mode=s.ai_chat_mode;
-    if(s.ai_topic)              Chat.topic=s.ai_topic;
-    if(s.ai_personality)        Chat.personality=s.ai_personality;
-    if(s.ai_custom_topic)       Chat.customTopic=s.ai_custom_topic;
-    if(s.ai_tts_speed)          Chat.ttsSpeed=parseFloat(s.ai_tts_speed)||0.9;
-    if(s.ai_ui_lang)            Chat.uiLang=s.ai_ui_lang||"auto";
-    Chat.ttsEnabled=s.ai_tts_enabled!=="off";
-  }
-  _applyChatSettings(); _updateTopicBar(); ttsInit(); _updateOfflineBadge();
-  const history=await api("/api/chat/history");
-  if(history&&history.length){
-    const msgs=$("chatMessages");
-    msgs.querySelectorAll(".chat-msg:not(:first-child)").forEach(m=>m.remove());
-    [...history].reverse().forEach(h=>{if(h.id) appendChatMsg(h.role,h.content,h.id,h.correction);});
-    msgs.scrollTop=msgs.scrollHeight;
-  }
-}
-
-function _applyChatSettings(){
-  _activateGroup("cspLevel",Chat.level);
-  _activateGroup("cspPersonality",Chat.personality);
-  _activateGroup("cspMode",Chat.mode);
-  _activateGroup("cspTopic",Chat.topic);
-  _activateGroup("cspTts",Chat.ttsEnabled?"on":"off");
-  _activateGroup("langSwitch",Chat.uiLang);
-  _setModeTab(Chat.mode);
-  const inp=$("customTopicInput"); if(inp&&Chat.customTopic) inp.value=Chat.customTopic;
-  const wrap=$("customTopicWrap"); if(wrap) wrap.style.display=Chat.topic==="free"?"flex":"none";
-  const rng=$("ttsSpeedRange"); if(rng) rng.value=Chat.ttsSpeed;
-  const lbl=$("ttsSpeedLabel"); if(lbl) lbl.textContent=Chat.ttsSpeed+"x";
-  const glbl=$("ttsGlobalLabel"); if(glbl) glbl.textContent=Chat.ttsEnabled?"ON":"OFF";
-  const gbtn=$("ttsGlobalBtn"); if(gbtn) gbtn.classList.toggle("tts-off",!Chat.ttsEnabled);
-  const ctbTts=$("ctbTts"); if(ctbTts) ctbTts.textContent=Chat.ttsEnabled?"🔊":"🔇";
-}
-
-function _activateGroup(groupId,val){
-  const el=$(groupId); if(!el) return;
-  el.querySelectorAll("[data-val],[data-lang]").forEach(b=>{
-    const bval=b.dataset.val||b.dataset.lang;
-    b.classList.toggle("active",bval===val);
-  });
-}
-
-function _setModeTab(mode){
-  $("modeBtnText")?.classList.toggle("active",mode==="text");
-  $("modeBtnChoice")?.classList.toggle("active",mode==="choice");
-  const ta=$("textInputArea"),ca=$("choiceArea");
-  if(ta) ta.style.display=mode==="text"?"flex":"none";
-  if(ca) ca.style.display=mode==="choice"?"flex":"none";
-  const hint=$("chatModeHint");
-  if(hint) hint.textContent=mode==="text"?"⌨️ Sen yozasan — AI javob beradi":"🔘 AI yozadi — Sen tugma bosasan";
-}
-
-function _updateOfflineBadge(){
-  const b=$("chatOfflineBadge"); if(b) b.style.display=State.internetAllowed?"none":"inline-flex";
-}
-
-function _updateTopicBar(){
-  const meta=TOPIC_META[Chat.topic]||TOPIC_META.free;
-  const icon=$("ctbIcon"),label=$("ctbLabel"),level=$("ctbLevel"),tts=$("ctbTts");
-  if(icon)  icon.textContent=meta.icon;
-  if(label) label.textContent=(Chat.topic==="free"&&Chat.customTopic)?`✨ ${Chat.customTopic}`:meta.label;
-  if(level){const lm={beginner:"🟢 Boshlang'ich",intermediate:"🟡 O'rta",advanced:"🔴 Yuqori"};level.textContent=lm[Chat.level]||Chat.level;}
-  if(tts)   tts.textContent=Chat.ttsEnabled?"🔊":"🔇";
-}
 
 
 // ══════════════════════════════════════════════════
 // SOZLAMALAR
 // ══════════════════════════════════════════════════
-function toggleChatSettings(){
-  const p=$("chatSettingsPanel"); if(!p) return;
-  p.style.display=p.style.display==="none"?"block":"none";
-}
-
-async function setChatSetting(type,val,btn){
-  if(type==="level")       Chat.level=val;
-  if(type==="personality") Chat.personality=val;
-  if(type==="tts"){
-    Chat.ttsEnabled=val==="on";
-    $("ttsGlobalLabel").textContent=Chat.ttsEnabled?"ON":"OFF";
-    $("ttsGlobalBtn")?.classList.toggle("tts-off",!Chat.ttsEnabled);
-    if(!Chat.ttsEnabled) speechSynthesis.cancel?.();
-  }
-  const gmap={level:"cspLevel",personality:"cspPersonality",tts:"cspTts"};
-  if(gmap[type]) _activateGroup(gmap[type],val);
-  _updateTopicBar();
-  await api("/api/chat/settings",{method:"POST",body:JSON.stringify({
-    ai_conversation_level:Chat.level, ai_personality:Chat.personality,
-    ai_tts_enabled:Chat.ttsEnabled?"on":"off",
-  })});
-}
-
-async function setChatTopic(topic,btn){
-  Chat.topic=topic; _activateGroup("cspTopic",topic);
-  const wrap=$("customTopicWrap"); if(wrap) wrap.style.display=topic==="free"?"flex":"none";
-  _updateTopicBar();
-  await api("/api/chat/settings",{method:"POST",body:JSON.stringify({ai_topic:topic})});
-}
-
-async function applyCustomTopic(){
-  const inp=$("customTopicInput"); const val=inp?.value.trim()||"";
-  Chat.customTopic=val; Chat.topic="free";
-  _activateGroup("cspTopic","free"); _updateTopicBar();
-  await api("/api/chat/settings",{method:"POST",body:JSON.stringify({ai_topic:"free",ai_custom_topic:val})});
-  toast(`✅ Mavzu: "${val||'Erkin'}"`, "success",1500);
-}
-
-async function switchChatMode(mode){
-  Chat.mode=mode; _setModeTab(mode); _activateGroup("cspMode",mode);
-  await api("/api/chat/settings",{method:"POST",body:JSON.stringify({ai_chat_mode:mode})});
-  if(mode==="choice") await startChoiceMode();
-}
-
-async function setUiLang(lang,btn){
-  Chat.uiLang=lang;
-  _activateGroup("langSwitch",lang);
-  await api("/api/chat/settings",{method:"POST",body:JSON.stringify({ai_ui_lang:lang})});
-  const lnames={auto:"🌐 Avtomatik",uz:"🇺🇿 O'zbek",ru:"🇷🇺 Rus"};
-  toast(lnames[lang]||lang,"info",1200);
-}
 
 
 // ══════════════════════════════════════════════════
 // XABAR QO'SHISH — appendChatMsg
 // ══════════════════════════════════════════════════
-function appendChatMsg(role,content,id=null,correction="",isOffline=false){
-  const msgs=$("chatMessages");
-  const div=document.createElement("div");
-  div.className=`chat-msg ${role}`;
-  const avatar=role==="assistant"?"🤖":"👤";
-  const offTag=isOffline?`<span class="msg-offline-tag">📵offline</span>`:"";
-  const corrHTML=correction?`<div class="msg-correction">✏️ ${correction}</div>`:"";
-  const editBtn=(role==="assistant"&&id)?`<button class="msg-edit-btn" onclick="editChatMsg(${id},this)">✏️</button>`:"";
-  const ttsText=content.split("\n")[0].replace(/[🎉✅❌📝💡👋🤖🇷🇺🇺🇿⭐🔊📵✨❓]/gu,"").trim();
-
-  const fmt=content
-    .replace(/\n/g,"<br>")
-    .replace(/\*\*(.*?)\*\*/g,"<strong>$1</strong>")
-    .replace(/❌\s*(.*?)\s*→\s*✅\s*(.*?)(<br>|$)/g,`<span class="err-wrong">❌ $1</span> → <span class="err-right">✅ $2</span>$3`)
-    .replace(/«(.*?)»/g,`<em class="msg-ru">«$1»</em>`);
-
-  div.innerHTML=`
-    <div class="msg-avatar">${avatar}</div>
-    <div class="msg-body">
-      <div class="msg-bubble">${fmt}${offTag}</div>
-      ${corrHTML}
-      <div class="msg-actions">
-        <button class="tts-msg-btn" onclick="ttsSpeakEl(this)"
-          data-text="${ttsText.replace(/"/g,'&quot;')}" title="Eshitish">🔊</button>
-        ${editBtn}
-      </div>
-    </div>`;
-  msgs.appendChild(div);
-  msgs.scrollTop=msgs.scrollHeight;
-  Chat.msgCount++;
-  if(role==="assistant"&&Chat.ttsEnabled) ttsSpeak(ttsText,true);
-}
-
-function _showTyping(){
-  if(Chat.isTyping) return; Chat.isTyping=true;
-  const div=document.createElement("div");
-  div.className="chat-msg assistant typing-msg"; div.id="typingIndicator";
-  div.innerHTML=`<div class="msg-avatar">🤖</div><div class="msg-body"><div class="msg-bubble typing-dots"><span></span><span></span><span></span></div></div>`;
-  $("chatMessages").appendChild(div); $("chatMessages").scrollTop=$("chatMessages").scrollHeight;
-}
-function _hideTyping(){ Chat.isTyping=false; $("typingIndicator")?.remove(); }
-
-
-// ══════════════════════════════════════════════════
-// DYNAMIC ACTION TUGMALAR (Telegram bot uslubi)
-// ══════════════════════════════════════════════════
-function showActions(actions, contextQuestion=""){
-  _hideActions();
-  if(!actions||!actions.length) return;
-  const area=$("actionArea"),btnsEl=$("actionBtns"),hint=$("actionHint");
-  if(!area||!btnsEl) return;
-  if(hint) hint.textContent="Tanlovingizni bosing:";
-
-  btnsEl.innerHTML=actions.map((a,i)=>`
-    <button class="action-btn action-${a.action||'default'}"
-            onclick="handleAction('${a.action||''}','${(a.question||contextQuestion).replace(/'/g,"\\'")}','${(a.hint||'').replace(/'/g,"\\'")}','${(a.label||'').replace(/'/g,"\\'")}',${i})">
-      ${a.label||a.action}
-    </button>`).join("");
-
-  area.style.display="flex";
-  area.scrollIntoView({behavior:"smooth",block:"nearest"});
-}
-
-function _hideActions(){
-  const area=$("actionArea"); if(!area) return;
-  area.style.display="none";
-  const btns=$("actionBtns"); if(btns) btns.innerHTML="";
-}
-
-async function handleAction(action, question, hint, label, idx){
-  _hideActions();
-
-  if(action==="teach"){
-    // Inline teach input ko'rsatish
-    openTeachInput(question, hint);
-    return;
-  }
-
-  if(action==="skip"){
-    _showTyping();
-    const r=await api("/api/chat",{method:"POST",body:JSON.stringify({
-      action:"skip", message:"", mode:Chat.mode, topic:Chat.topic,
-      custom_topic:Chat.customTopic, ui_lang:Chat.uiLang,
-    })});
-    _hideTyping();
-    if(r?.ok) appendChatMsg("assistant",r.response,null,"",r.offline||false);
-    return;
-  }
-
-  if(action==="confirm"){
-    // Umumiy tasdiqlash
-    appendChatMsg("user",label);
-    _showTyping();
-    const r=await api("/api/chat",{method:"POST",body:JSON.stringify({
-      message:label, mode:Chat.mode, topic:Chat.topic,
-      custom_topic:Chat.customTopic, ui_lang:Chat.uiLang,
-    })});
-    _hideTyping();
-    if(r?.ok){
-      appendChatMsg("assistant",r.response,null,"",r.offline||false);
-      if(r.actions?.length) showActions(r.actions,question);
-      if(r.choices?.length) showChoices(r.choices);
-    }
-    await loadProfile();
-    return;
-  }
-
-  // Default: xabar sifatida yuborish
-  appendChatMsg("user",label||question);
-  await _sendToApi(label||question);
-}
 
 // ── Inline teach input ────────────────────────────
-function openTeachInput(question, hint="Javobni yozing..."){
-  Chat.pendingTeach={question, hint};
-  const area=$("teachInputArea"),qEl=$("tiaQuestion"),inp=$("tiaAnswerInput"),title=$("tiaTitle");
-  if(!area) return;
-  if(title) title.textContent="🧠 AI ga o'rgatish";
-  if(qEl)   qEl.textContent=`❓ Savol: "${question}"`;
-  if(inp){  inp.placeholder=hint; inp.value=""; }
-  area.style.display="block";
-  setTimeout(()=>inp?.focus(),100);
-}
-
-function closeTeachInput(){
-  const area=$("teachInputArea"); if(area) area.style.display="none";
-  Chat.pendingTeach=null;
-}
-
-async function confirmTeach(){
-  if(!Chat.pendingTeach) return;
-  const ans=($("tiaAnswerInput")?.value||"").trim();
-  if(!ans){toast("Javobni kiriting","warn");return;}
-  const {question}=Chat.pendingTeach;
-  closeTeachInput();
-  appendChatMsg("user",`✅ "${question}" → "${ans}"`);
-  _showTyping();
-  const r=await api("/api/chat",{method:"POST",body:JSON.stringify({
-    action:"confirm_teach",
-    teach_question:question,
-    teach_answer:ans,
-    message:"",
-    mode:Chat.mode,
-  })});
-  _hideTyping();
-  if(r?.ok) appendChatMsg("assistant",r.response,null,"",false);
-  else toast("❌ Xatolik","error");
-}
 
 
 // ══════════════════════════════════════════════════
-// MATNLI REJIM — sendChat
-// ══════════════════════════════════════════════════
-async function sendChat(){
-  const inp=$("chatInput");
-  const msg=inp?.value.trim();
-  if(!msg||Chat.isTyping) return;
-  inp.value=""; inp.focus();
-  _hideActions();
-  appendChatMsg("user",msg);
-  await _sendToApi(msg);
-}
-
-async function _sendToApi(msg){
-  _showTyping();
-  const r=await api("/api/chat",{method:"POST",body:JSON.stringify({
-    message:msg, mode:"text", topic:Chat.topic,
-    custom_topic:Chat.customTopic, ui_lang:Chat.uiLang,
-  })});
-  _hideTyping();
-  if(r?.ok){
-    appendChatMsg("assistant",r.response,null,"",r.offline||false);
-    if(r.offline) toast("📵 Offline AI","info",1500);
-    // ACTION tugmalar
-    if(r.actions?.length) showActions(r.actions, msg);
-    // CHOICES (tugmali rejim)
-    if(r.choices?.length) showChoices(r.choices);
-  } else {
-    appendChatMsg("assistant",`❌ ${r?.error||"Xatolik yuz berdi"}`);
-    toast("❌ "+(r?.error||"AI xatosi"),"error");
-  }
-  await loadProfile();
-}
-
-function clearChatInput(){ const i=$("chatInput"); if(i){i.value="";i.focus();} }
-
-function insertText(txt){
-  const i=$("chatInput"); if(!i) return;
-  i.value=(i.value+txt).trimStart(); i.focus();
-}
-
-function insertPhrase(){
-  const pool=[
-    "Меня зовут ","Я из ","Я живу в ","Мне нравится ",
-    "Я люблю ","Расскажи мне о ","Я не понимаю.","Повторите, пожалуйста.",
-    "Как это по-русски?","Что значит ","Я хочу ","Буgun kun qanday o'tdi?",
-    "Men bilmoqchiman: ","Toshkent haqida nima bilasan?",
-  ];
-  insertText(pool[Math.floor(Math.random()*pool.length)]);
-}
+// MATNLI REJIM — // ══════════════════════════════════════════════════
 
 
 // ══════════════════════════════════════════════════
 // TUGMALI REJIM
 // ══════════════════════════════════════════════════
-async function startChoiceMode(){
-  _showTyping();
-  const r=await api("/api/chat/choices",{method:"POST",body:JSON.stringify({
-    topic:Chat.topic, custom_topic:Chat.customTopic, level:Chat.level,
-  })});
-  _hideTyping();
-  if(!r?.ok){appendChatMsg("assistant","❌ AI bilan bog'lanib bo'lmadi");return;}
-  appendChatMsg("assistant",r.response,null,"",r.offline||false);
-  if(r.actions?.length) showActions(r.actions);
-  showChoices(r.choices||[]);
-}
-
-function showChoices(choices){
-  const area=$("choiceArea"),btnsEl=$("choiceBtns");
-  if(!area||!btnsEl||!choices.length){if(area)area.style.display="none";return;}
-  btnsEl.innerHTML=choices.map((c,i)=>`
-    <button class="choice-option" onclick="pickChoice(this,'${c.replace(/'/g,"\\'")}',${i})" data-idx="${i}">
-      <span class="co-num">${i+1}</span>
-      <span class="co-text">${c}</span>
-      <button class="tts-choice-btn" onclick="event.stopPropagation();ttsSpeak('${c.replace(/'/g,"\\'")}',true)" title="Eshitish">🔊</button>
-    </button>`).join("");
-  area.style.display="flex";
-  if(area._kh) document.removeEventListener("keydown",area._kh);
-  area._kh=(e)=>{
-    if(e.target.tagName==="INPUT"||e.target.tagName==="TEXTAREA") return;
-    const n=parseInt(e.key);
-    if(n>=1&&n<=choices.length){const b=btnsEl.querySelectorAll(".choice-option")[n-1];if(b)pickChoice(b,choices[n-1],n-1);}
-  };
-  document.addEventListener("keydown",area._kh);
-}
-
-function _clearChoices(){
-  const area=$("choiceArea"); if(!area) return;
-  area.style.display="none";
-  if(area._kh){document.removeEventListener("keydown",area._kh);area._kh=null;}
-  $("choiceBtns").innerHTML="";
-}
-
-async function pickChoice(btn,chosenText){
-  if(Chat.isTyping) return;
-  _clearChoices(); _hideActions();
-  appendChatMsg("user",chosenText);
-  _showTyping();
-  const r=await api("/api/chat",{method:"POST",body:JSON.stringify({
-    message:chosenText, mode:"choice", topic:Chat.topic,
-    custom_topic:Chat.customTopic, ui_lang:Chat.uiLang,
-  })});
-  _hideTyping();
-  if(r?.ok){
-    appendChatMsg("assistant",r.response,null,"",r.offline||false);
-    if(r.actions?.length) showActions(r.actions,chosenText);
-    const pool={
-      free:["Расскажи больше.","Не понимаю.","Хорошо!","Другая тема."],
-      greet:["Привет! Как дела?","Меня зовут...","Я из Ташкента.","Рад познакомиться!"],
-    };
-    showChoices(r.choices?.length?r.choices:(pool[Chat.topic]||pool.free));
-  } else {
-    appendChatMsg("assistant",`❌ ${r?.error||"Xatolik"}`);
-    showChoices(["Davom eting.","Boshqa savol.","Tushunmadim.","Xayr!"]);
-  }
-  await loadProfile();
-}
-
-async function skipChoice(){
-  _clearChoices(); if(Chat.isTyping) return;
-  _showTyping();
-  const r=await api("/api/chat/choices",{method:"POST",body:JSON.stringify({topic:Chat.topic,custom_topic:Chat.customTopic,level:Chat.level})});
-  _hideTyping();
-  if(r?.ok){appendChatMsg("assistant",r.response,null,"",r.offline||false);showChoices(r.choices||[]);}
-}
 
 
 // ══════════════════════════════════════════════════
 // AI O'QITISH MODALI
 // ══════════════════════════════════════════════════
-function openTeachPanel(){
-  loadKnowledgeList();
-  openModal("teachModal");
-}
-
-async function loadKnowledgeList(){
-  const listEl=$("knowledgeList"); if(!listEl) return;
-  listEl.innerHTML=`<div class="loading-spinner"><span class="spinner"></span></div>`;
-  const items=await api("/api/chat/knowledge");
-  if(!items||items.error){listEl.innerHTML=`<div class="empty-state"><p>Yuklab bo'lmadi</p></div>`;return;}
-  if(!items.length){
-    listEl.innerHTML=`<div class="empty-state"><div class="empty-icon">🧠</div><p>Hali hech narsa o'rgatilmagan.<br>AI ga birinchi ma'lumotni o'rgating!</p></div>`;
-    return;
-  }
-  const catIcons={general:"📦",geo:"🗺️",history:"📜",science:"🔬",culture:"🎭",person:"👤",word:"💬"};
-  listEl.innerHTML=items.map(k=>`
-    <div class="knowledge-item" id="ki-${k.id}">
-      <div class="ki-cat">${catIcons[k.category]||"📦"}</div>
-      <div class="ki-body">
-        <div class="ki-q">${k.question}</div>
-        <div class="ki-a">${k.answer.length>80?k.answer.slice(0,80)+"...":k.answer}</div>
-        <div class="ki-meta">
-          <span class="ki-lang">${k.lang==="uz"?"🇺🇿":k.lang==="ru"?"🇷🇺":"🌐"}</span>
-          <span class="ki-use">${k.use_count} marta ishlatildi</span>
-          <span class="ki-date">${fmtDate(k.added_at)}</span>
-        </div>
-      </div>
-      <button class="btn btn-sm btn-danger ki-del" onclick="deleteKnowledge(${k.id})" title="O'chirish">🗑</button>
-    </div>`).join("");
-}
-
-async function submitTeach(){
-  const q=($("teachQ")?.value||"").trim();
-  const a=($("teachA")?.value||"").trim();
-  const lang=$("teachLang")?.value||"ru";
-  const cat=$("teachCat")?.value||"general";
-  if(!q||!a){toast("Savol va javob to'ldirilishi shart","warn");return;}
-  const r=await api("/api/chat/teach",{method:"POST",body:JSON.stringify({question:q,answer:a,lang,category:cat})});
-  if(r?.ok){
-    toast("✅ AI o'rgandi: «"+q+"»","success");
-    $("teachQ").value=""; $("teachA").value="";
-    appendChatMsg("assistant",r.message,null,"",false);
-    loadKnowledgeList();
-  } else toast("❌ "+(r?.error||"Xatolik"),"error");
-}
-
-async function deleteKnowledge(id){
-  if(!confirm("Ushbu bilimni o'chirish?")) return;
-  await api(`/api/chat/knowledge/${id}`,{method:"DELETE"});
-  $(`ki-${id}`)?.remove();
-  toast("🗑 O'chirildi","info");
-}
 
 // ══════════════════════════════════════════════════
 // UMUMIY AMALLAR
 // ══════════════════════════════════════════════════
-async function clearChat(){
-  if(!confirm("Barcha suhbat tarixini tozalash?")) return;
-  speechSynthesis.cancel?.();
-  await api("/api/chat/clear",{method:"POST"});
-  $("chatMessages").querySelectorAll(".chat-msg:not(:first-child)").forEach(m=>m.remove());
-  _clearChoices(); _hideActions(); closeTeachInput();
-  Chat.msgCount=0; toast("🗑 Tozalandi","info");
-}
-
-async function startFreshChat(){
-  await clearChat();
-  toggleChatSettings(); _updateTopicBar();
-  if(Chat.mode==="choice") await startChoiceMode();
-  else {
-    const meta=TOPIC_META[Chat.topic]||TOPIC_META.free;
-    const topic=(Chat.topic==="free"&&Chat.customTopic)?`"${Chat.customTopic}"`:meta.label;
-    appendChatMsg("assistant",
-      `Yangi suhbat! 🇷🇺🇺🇿\n📂 Mavzu: ${meta.icon} ${topic}\n📊 Daraja: ${Chat.level}\n💬 Til: ${Chat.uiLang==="uz"?"🇺🇿 O'zbek":Chat.uiLang==="ru"?"🇷🇺 Rus":"🌐 Avtomatik"}\n\nYozing yoki gapiring!`,
-      null,"",false);
-  }
-}
-
-function editChatMsg(id,btn){
-  const c=prompt("Tuzatishni kiriting:"); if(!c) return;
-  api("/api/chat/correct",{method:"POST",body:JSON.stringify({id,correction:c})});
-  const d=document.createElement("div"); d.className="msg-correction"; d.textContent="✏️ "+c;
-  btn.closest(".msg-body").insertBefore(d,btn.closest(".msg-actions")); btn.remove();
-  toast("✅ Saqlandi","success");
-}
-
-function exportChat(){
-  const msgs=$("chatMessages").querySelectorAll(".chat-msg");
-  let text=`RusLearn Pro — AI Suhbat\nSana: ${new Date().toLocaleDateString("uz-UZ")}\n${"─".repeat(40)}\n\n`;
-  msgs.forEach(m=>{
-    const role=m.classList.contains("user")?"Men":"AI (Alex)";
-    const bubble=m.querySelector(".msg-bubble");
-    if(bubble) text+=`[${role}]: ${bubble.innerText.replace(/🔊|⏹/g,"").trim()}\n\n`;
-  });
-  const a=document.createElement("a");
-  a.href=URL.createObjectURL(new Blob([text],{type:"text/plain;charset=utf-8"}));
-  a.download=`ruslearn_chat_${new Date().toISOString().slice(0,10)}.txt`;
-  a.click(); toast("📥 Yuklab olindi","success");
-}
 
 // eski muvofiqlik
-async function saveChatLevel(){
-  const s=$("chatLevelSel"); if(s) Chat.level=s.value;
-  await api("/api/chat/settings",{method:"POST",body:JSON.stringify({ai_conversation_level:Chat.level})});
-}
 async function loadSchedule(){
   const sched=await api("/api/schedule?days=14");
   const missed=await api("/api/schedule/missed");
@@ -1814,140 +1237,7 @@ async function deleteLesson(id){
 // ══════════════════════════════════════════════════
 // PROGRESS v2 — Charts, Streak Banner, Radar Chart
 // ══════════════════════════════════════════════════
-const Charts = { week:null, growth:null, radar:null, study:null };
-let _weekData  = null;
-let _radarData = null;
-const _catLabels = {
-  greeting:"👋 Salomlashish", numbers:"🔢 Raqamlar", colors:"🎨 Ranglar",
-  family:"👨‍👩‍👧 Oila", food:"🍎 Ovqat", verbs:"⚡ Fe'llar",
-  adjectives:"🌟 Sifatlar", travel:"✈️ Sayohat", work:"💼 Ish",
-  health:"🏥 Sog'liq", nature:"🌿 Tabiat", time_ext:"⏰ Vaqt",
-  emotions:"😊 His", navigation:"🗺️ Yo'l", introduction:"🤝 Tanishish",
-  transport:"🚗 Transport", animals:"🐾 Hayvon", clothing:"👗 Kiyim",
-  school:"🏫 Maktab", sport:"⚽ Sport", math:"🔢 Math",
-  body:"🫀 Tana", house:"🏠 Uy", weather:"🌤️ Ob-havo", places:"🏛️ Joylar",
-};
 
-function showStreakBanner(notif){
-  if(!notif) return;
-  const banner=$("streakNotifBanner"); if(!banner) return;
-  const iconMap={info:"ℹ️",success:"🔥",gold:"🏆",warn:"⏰"};
-  $("snbIcon").textContent=iconMap[notif.type]||"🔥";
-  $("snbMsg").textContent=notif.msg;
-  banner.className=`streak-notif-banner snb-${notif.type}`;
-  banner.style.display="flex";
-  clearTimeout(banner._t);
-  banner._t=setTimeout(()=>{banner.style.display="none";},8000);
-}
-
-function buildWeekChart(days,metric="xp"){
-  const canvas=$("weekChart"); if(!canvas||!window.Chart) return;
-  if(Charts.week){Charts.week.destroy();Charts.week=null;}
-  const M={
-    xp:     {key:"xp",     color:"rgba(79,142,247,0.75)", border:"#4f8ef7",label:"XP"},
-    minutes:{key:"minutes",color:"rgba(52,201,126,0.75)", border:"#34c97e",label:"Daqiqa"},
-    words:  {key:"words",  color:"rgba(240,192,64,0.75)", border:"#f0c040",label:"So'z"},
-  };
-  const m=M[metric]||M.xp;
-  const dt=days.map(d=>d[m.key]||0);
-  Charts.week=new Chart(canvas,{
-    type:"bar",
-    data:{labels:days.map(d=>d.day),datasets:[{
-      label:m.label,data:dt,
-      backgroundColor:dt.map(v=>v>0?m.color:"rgba(255,255,255,0.05)"),
-      borderColor:m.border,borderWidth:2,borderRadius:6,
-    }]},
-    options:{responsive:true,
-      plugins:{legend:{display:false},
-        tooltip:{callbacks:{label:ctx=>`${ctx.raw} ${m.label}`}}},
-      scales:{
-        y:{beginAtZero:true,ticks:{color:"#9ba3b8",maxTicksLimit:5},grid:{color:"#2a2f40"}},
-        x:{ticks:{color:"#9ba3b8"},grid:{display:false}},
-      }},
-  });
-}
-
-function switchWeekTab(metric,btn){
-  document.querySelectorAll(".week-tab").forEach(b=>b.classList.remove("active"));
-  btn.classList.add("active");
-  if(_weekData) buildWeekChart(_weekData,metric);
-}
-
-function buildGrowthChart(lh){
-  const canvas=$("growthChart"); if(!canvas||!window.Chart) return;
-  if(Charts.growth){Charts.growth.destroy();Charts.growth=null;}
-  if(!lh?.length) return;
-  const items=lh.slice(-30);
-  const step=Math.max(1,Math.floor(items.length/6));
-  const labels=items.map((d,i)=>i%step===0?d.date.slice(5):"");
-  const xpData=items.map(d=>d.xp||0);
-  const thresholds=[
-    {y:200, label:"Boshlang'ich",color:"rgba(52,201,126,0.35)"},
-    {y:500, label:"O'rta",       color:"rgba(79,142,247,0.35)"},
-    {y:1000,label:"O'rta-yuqori",color:"rgba(240,192,64,0.35)"},
-    {y:2000,label:"Ilg'or",      color:"rgba(240,140,64,0.35)"},
-    {y:4000,label:"Ustoz",       color:"rgba(168,120,247,0.35)"},
-  ];
-  Charts.growth=new Chart(canvas,{
-    type:"line",
-    data:{labels,datasets:[
-      {label:"XP",data:xpData,borderColor:"#4f8ef7",backgroundColor:"rgba(79,142,247,0.1)",
-       borderWidth:2.5,pointRadius:3,fill:true,tension:0.35},
-      ...thresholds.map(t=>({label:t.label,data:Array(items.length).fill(t.y),
-        borderColor:t.color,borderWidth:1,borderDash:[5,5],pointRadius:0,fill:false})),
-    ]},
-    options:{responsive:true,interaction:{mode:"index",intersect:false},
-      plugins:{legend:{display:true,labels:{filter:i=>i.text==="XP",color:"#9ba3b8",font:{size:11}}},
-        tooltip:{callbacks:{label:ctx=>ctx.datasetIndex===0?`${ctx.raw} XP`:`${ctx.dataset.label}: ${ctx.raw}`}}},
-      scales:{
-        y:{beginAtZero:false,ticks:{color:"#9ba3b8",maxTicksLimit:6},grid:{color:"#2a2f40"}},
-        x:{ticks:{color:"#9ba3b8",maxRotation:0},grid:{display:false}},
-      }},
-  });
-  const colors=["#34c97e","#4f8ef7","#f0c040","#f08c40","#a878f7"];
-  const legEl=$("growthLegend");
-  if(legEl) legEl.innerHTML=thresholds.map((t,i)=>`
-    <span class="growth-leg-item">
-      <span style="background:${colors[i]};width:18px;height:2px;display:inline-block;
-        vertical-align:middle;border-radius:2px;margin-right:4px"></span>
-      ${t.y} XP — ${t.label}</span>`).join("");
-}
-
-function buildRadarChart(radarData){
-  const canvas=$("radarChart"); if(!canvas||!window.Chart) return;
-  if(Charts.radar){Charts.radar.destroy();Charts.radar=null;}
-  const items=radarData.filter(r=>r.total>0).slice(0,12);
-  if(!items.length) return;
-  const labels=items.map(r=>(_catLabels[r.category]||r.category).replace(/[^\w\s']/gu,"").trim().slice(0,12));
-  const data  =items.map(r=>r.total>0?Math.min(100,Math.round(r.correct/r.total*100)):0);
-  Charts.radar=new Chart(canvas,{
-    type:"radar",
-    data:{labels,datasets:[{label:"O'zlashtirish %",data,
-      backgroundColor:"rgba(79,142,247,0.18)",borderColor:"#4f8ef7",
-      borderWidth:2,pointBackgroundColor:"#4f8ef7",pointRadius:3}]},
-    options:{responsive:true,
-      scales:{r:{beginAtZero:true,max:100,
-        ticks:{stepSize:25,color:"#9ba3b8",font:{size:10},backdropColor:"transparent"},
-        grid:{color:"#2a2f40"},pointLabels:{color:"#9ba3b8",font:{size:10}},
-        angleLines:{color:"#2a2f40"}}},
-      plugins:{legend:{display:false},
-        tooltip:{callbacks:{label:ctx=>`${ctx.raw}% o'zlashtirilgan`}}}},
-  });
-}
-
-function switchRadarView(view,btn){
-  document.querySelectorAll(".radar-view-btn").forEach(b=>b.classList.remove("active"));
-  btn.classList.add("active");
-  const bv=$("radarBarView"),cv=$("radarChartView");
-  if(view==="bar"){
-    if(bv) bv.style.display="block";
-    if(cv) cv.style.display="none";
-  } else {
-    if(bv) bv.style.display="none";
-    if(cv) cv.style.display="block";
-    if(_radarData) buildRadarChart(_radarData);
-  }
-}
 
 async function loadProgress(){
   const [stats,history,weekReport,goalsReport,adaptStats]=await Promise.all([
@@ -2124,7 +1414,6 @@ async function loadProgress(){
         <span>${lessonTypeEmoji(h.lesson_type)}</span>
         <span style="flex:1">${{vocabulary:"Lug'at",grammar:"Grammatika",
           flashcards:"Kartochkalar",quiz:"Test",chat:"AI Suhbat",game:"O'yin",
-          adaptive:"Adaptiv",roleplay:"Roleplay"}[h.lesson_type]||h.lesson_type}</span>
         <span style="color:var(--text3)">${secToMin(h.duration_sec||0)}</span>
         <span style="color:var(--yellow)">${h.score||0}%</span>
         <span style="color:var(--purple)">+${h.xp_earned||0} XP</span>
@@ -2135,238 +1424,20 @@ async function loadProgress(){
   }
 }
 
-async function loadGoalsForm(){
-  const r = await api("/api/goals");
-  if(!r||r.error) return;
-  if($("goalWords"))   $("goalWords").value   = r.goals?.words   || 10;
-  if($("goalMinutes")) $("goalMinutes").value  = r.goals?.minutes || 30;
-  if($("goalXp"))      $("goalXp").value       = r.goals?.xp     || 50;
-}
 
-async function saveGoals(){
-  const r = await api("/api/goals",{method:"POST",body:JSON.stringify({
-    words:   parseInt($("goalWords")?.value)   || 10,
-    minutes: parseInt($("goalMinutes")?.value) || 30,
-    xp:      parseInt($("goalXp")?.value)      || 50,
-  })});
-  if(r?.ok){ toast("✅ Maqsadlar saqlandi","success"); closeModal("goalsModal"); loadProgress(); }
-}
 
-// ── Xotira modal ──────────────────────────────────
-async function loadMemoryForm(){
-  const mem = await api("/api/memory");
-  if(!mem) return;
-  const map = {
-    user_name:"memName",user_age:"memAge",user_city:"memCity",
-    user_job:"memJob",user_hobbies:"memHobbies",user_goal:"memGoal",user_notes:"memNotes",
-  };
-  Object.entries(map).forEach(([k,id])=>{ const el=$(id); if(el) el.value=mem[k]||""; });
-}
 
-async function saveMemory(){
-  const map = {
-    memName:"user_name",memAge:"user_age",memCity:"user_city",
-    memJob:"user_job",memHobbies:"user_hobbies",memGoal:"user_goal",memNotes:"user_notes",
-  };
-  const data = {};
-  Object.entries(map).forEach(([id,k])=>{ const el=$(id); if(el) data[k]=el.value.trim(); });
-  await api("/api/memory",{method:"POST",body:JSON.stringify(data)});
-  // Ismni profile ga ham saqlash
-  if(data.user_name){
-    await api("/api/profile",{method:"POST",body:JSON.stringify({name:data.user_name})});
-    await loadProfile();
-  }
-  toast("✅ AI xotiraga saqlandi! Endi sizni bilaman 😊","success");
-  closeModal("memoryModal");
-}
-
-// sidebar streak badge yangilash
-async function updateStreakBadge(){
-  const r = await api("/api/streak");
-  if(!r||r.error) return;
-  const el = $("profileStreak");
-  if(el) el.textContent = `🔥${r.current}`;
-}
 
 
 // ══════════════════════════════════════════════════
 // ADAPTIV TEST
 // ══════════════════════════════════════════════════
-const AdaptState = { questions:[], index:0, score:0, xp:0, answers:[], type:"words", start:null };
 
-async function loadAdaptivePage(){
-  // Kuchsiz kategoriyalarni ko'rsatish
-  const stats = await api("/api/adaptive/stats");
-  const panel = $("weakFocusPanel");
-  if(!panel) return;
-  const weakest = stats?.weakest || [];
-  if(weakest.length){
-    const catLabels={
-      greeting:"👋 Salomlashish",numbers:"🔢 Raqamlar",colors:"🎨 Ranglar",
-      family:"👨‍👩‍👧 Oila",food:"🍎 Ovqat",verbs:"⚡ Fe'llar",adjectives:"🌟 Sifatlar",
-      travel:"✈️ Sayohat",navigation:"🗺️ Yo'l",school:"🏫 Maktab",
-      introduction:"🤝 Tanishish",sport:"⚽ Sport",math:"🔢 Math",
-      weather:"🌤️ Ob-havo",body:"🫀 Tana",clothing:"👗 Kiyim",
-    };
-    panel.innerHTML=`
-      <div class="weak-focus-title">⚠️ Bu kategoriyalar ayniqsa kuchsiz:</div>
-      <div class="weak-focus-chips">
-        ${weakest.map(w=>`<span class="weak-chip">${catLabels[w.category]||w.category} (${Math.round(w.wrong/(w.correct+w.wrong||1)*100)}% xato)</span>`).join("")}
-      </div>`;
-  } else {
-    panel.innerHTML=`<div class="muted" style="padding:8px">Test ishlashingiz bilan kuchsiz tomonlaringiz aniqlanadi.</div>`;
-  }
-}
-
-async function startAdaptiveTest(){
-  const type  = document.querySelector('input[name="adaptType"]:checked')?.value || "words";
-  const count = parseInt(document.querySelector('input[name="adaptCount"]:checked')?.value || "10");
-  AdaptState.type    = type;
-  AdaptState.index   = 0;
-  AdaptState.score   = 0;
-  AdaptState.xp      = 0;
-  AdaptState.answers = [];
-  AdaptState.start   = Date.now();
-
-  let questions = [];
-  if(type === "cloze"){
-    const clozeList = await api(`/api/cloze?limit=${count}`);
-    questions = (clozeList||[]).map(c=>({
-      type:"cloze", id:c.id, category:c.category,
-      sentence_ru:c.sentence_ru, sentence_uz:c.sentence_uz,
-      answer:c.answer,
-      choices: JSON.parse(c.options_json||"[]"),
-    }));
-  } else {
-    const words = await api(`/api/adaptive/words?limit=${count*3}`);
-    const pool  = (words||[]).sort(()=>Math.random()-0.5).slice(0,count);
-    questions   = pool.map(w=>{
-      const wrong = pool.filter(x=>x.id!==w.id)
-        .sort(()=>Math.random()-0.5).slice(0,3).map(x=>x.uzbek);
-      const choices = [...wrong, w.uzbek].sort(()=>Math.random()-0.5);
-      return { type:"word", id:w.id, category:w.category||"general",
-               question:w.russian, answer:w.uzbek, choices, pron:w.pronunciation||"" };
-    });
-    if(type==="mixed"){
-      const clozeList = await api(`/api/cloze?limit=${Math.floor(count/2)}`);
-      const clozeQ    = (clozeList||[]).map(c=>({
-        type:"cloze", id:c.id, category:c.category,
-        sentence_ru:c.sentence_ru, sentence_uz:c.sentence_uz,
-        answer:c.answer, choices:JSON.parse(c.options_json||"[]"),
-      }));
-      questions = [...questions.slice(0,Math.ceil(count/2)), ...clozeQ]
-        .sort(()=>Math.random()-0.5).slice(0,count);
-    }
-  }
-
-  if(!questions.length){ toast("Savollar topilmadi","warn"); return; }
-  AdaptState.questions = questions;
-  $("adaptiveSetup").style.display = "none";
-  $("adaptiveResult").style.display = "none";
-  $("adaptivePlay").style.display  = "block";
-  showAdaptQuestion();
-}
-
-function showAdaptQuestion(){
-  const q = AdaptState.questions[AdaptState.index];
-  if(!q){ endAdaptiveTest(); return; }
-  const total = AdaptState.questions.length;
-  $("adaptProgFill").style.width  = `${Math.round(AdaptState.index/total*100)}%`;
-  $("adaptProgLabel").textContent = `${AdaptState.index+1}/${total}`;
-  $("adaptScoreLabel").textContent= `${AdaptState.score} ball`;
-  $("adaptFeedback").style.display= "none";
-  $("adaptQuestionType").textContent = q.type==="cloze" ? "✏️ Bo'shliq to'ldirish" : "📖 So'z testi";
-  $("adaptQuestionType").className   = `adapt-type-badge ${q.type}`;
-
-  if(q.type === "cloze"){
-    $("adaptQuestion").textContent  = q.sentence_ru;
-    const ctxEl = $("adaptClozeContext");
-    ctxEl.style.display  = "block";
-    ctxEl.textContent    = `🇺🇿 ${q.sentence_uz}`;
-  } else {
-    $("adaptQuestion").textContent  = q.question;
-    $("adaptClozeContext").style.display = "none";
-    if(q.pron) $("adaptQuestion").title = `🔊 ${q.pron}`;
-  }
-
-  $("adaptChoices").innerHTML = q.choices.map((c,i)=>`
-    <button class="quiz-choice" onclick="answerAdapt(this,'${c.replace(/'/g,"\\'")}',${i})">
-      ${c}
-    </button>`).join("");
-}
-
-function answerAdapt(btn, chosen, idx){
-  const q       = AdaptState.questions[AdaptState.index];
-  const correct = chosen === q.answer;
-  document.querySelectorAll(".quiz-choice").forEach(b=>b.disabled=true);
-  btn.classList.add(correct?"correct":"wrong");
-  if(!correct)
-    document.querySelectorAll(".quiz-choice")
-      .forEach(b=>{ if(b.textContent.trim()===q.answer) b.classList.add("correct"); });
-
-  const pts = correct ? 10 : 0;
-  AdaptState.score += pts;
-  AdaptState.answers.push({...q, chosen, correct});
-
-  // Backend ga statistika yuborish
-  api("/api/adaptive/update",{method:"POST",
-    body:JSON.stringify({category:q.category||"general", correct})});
-  if(q.type==="word" && q.id)
-    api(`/api/words/${q.id}/review`,{method:"POST",body:JSON.stringify({correct})});
-  if(q.type==="cloze" && q.id)
-    api(`/api/cloze/${q.id}/result`,{method:"POST",
-      body:JSON.stringify({correct, category:q.category})});
-
-  const fb = $("adaptFeedback");
-  fb.className = `quiz-feedback ${correct?"correct":"wrong"}`;
-  fb.style.display = "block";
-  fb.innerHTML = correct
-    ? `✅ To'g'ri! +10 ball${q.pron?` <em>🔊 ${q.pron}</em>`:""}`
-    : `❌ Noto'g'ri! To'g'ri: <strong>${q.answer}</strong>`;
-
-  setTimeout(()=>{ AdaptState.index++; showAdaptQuestion(); }, 1300);
-}
-
-async function endAdaptiveTest(){
-  $("adaptivePlay").style.display   = "none";
-  const total    = AdaptState.questions.length;
-  const correct  = AdaptState.answers.filter(a=>a.correct).length;
-  const pct      = Math.round(correct/total*100);
-  const elapsed  = Math.round((Date.now()-AdaptState.start)/1000);
-  const emoji    = pct>=90?"🏆":pct>=70?"🎉":pct>=50?"😊":"💪";
-
-  AdaptState.xp = AdaptState.score;
-  await api("/api/history",{method:"POST",body:JSON.stringify({
-    lesson_type:"adaptive", duration_sec:elapsed,
-    score:pct, xp_earned:AdaptState.xp,
-    details:{correct, wrong:total-correct, total, type:AdaptState.type},
-  })});
-  await loadProfile();
-
-  // Maslahat
-  const weakCats = [...new Set(AdaptState.answers.filter(a=>!a.correct).map(a=>a.category))];
-  const adviceEl = $("adaptResultAdvice");
-  adviceEl.innerHTML = weakCats.length
-    ? `<div class="adapt-advice-text">
-        💡 <b>Maslahat:</b> ${weakCats.join(", ")} mavzularida ko'proq mashq qiling!
-        <button class="btn btn-sm btn-ghost" onclick="navigate('vocabulary')">📖 Lug'atga o'tish</button>
-       </div>`
-    : "";
-
-  $("adaptResultEmoji").textContent = emoji;
-  $("adaptResultScore").textContent = `${AdaptState.score} ball — ${pct}%`;
-  $("adaptResultDetails").innerHTML = `
-    <div style="color:var(--text2);margin-bottom:12px">
-      ✅ ${correct} to'g'ri · ❌ ${total-correct} noto'g'ri · ⏱ ${secToMin(elapsed)}
-    </div>`;
-  $("adaptiveResult").style.display = "block";
-  toast(`🎉 ${AdaptState.xp} XP qo'shildi!`, "success");
-}
 
 // ══════════════════════════════════════════════════
 // ROLEPLAY (Dialog Mashqi)
 // ══════════════════════════════════════════════════
-const RpState = { sessionId:null, scenario:null, isTyping:false };
+
 
 const RP_HINTS = {
   shop:    ["Сколько стоит?","Мне нравится.","Это дорого.","Я возьму это."],
@@ -2379,143 +1450,8 @@ const RP_HINTS = {
   job:     ["Я ищу работу.","У меня опыт 3 года.","Какая зарплата?","Когда начать?"],
 };
 
-async function loadRoleplayPage(){
-  const scenarios = await api("/api/roleplay/scenarios");
-  const grid      = $("rpGrid");
-  if(!grid||!scenarios) return;
-  grid.innerHTML = (scenarios||[]).map(s=>`
-    <div class="rp-card" onclick="startRoleplay('${s.id}')">
-      <div class="rp-icon">${s.icon||"🎭"}</div>
-      <div class="rp-info">
-        <div class="rp-title">${s.title}</div>
-        <div class="rp-roles">
-          <span>Sen: ${s.user_role}</span>
-          <span>AI: ${s.ai_role}</span>
-        </div>
-      </div>
-      <button class="btn btn-primary btn-sm">▶ Boshlash</button>
-    </div>`).join("");
-}
-
-async function startRoleplay(scenarioId){
-  $("rpScenarios").style.display = "none";
-  $("rpResult").style.display    = "none";
-  $("rpChat").style.display      = "block";
-  $("rpEndBtn").style.display    = "inline-flex";
-  $("rpMessages").innerHTML      = "";
-  RpState.scenario = scenarioId;
-
-  const r = await api("/api/roleplay/start",{method:"POST",
-    body:JSON.stringify({scenario:scenarioId})});
-  if(!r?.ok){ toast("❌ Xatolik","error"); return; }
-
-  RpState.sessionId = r.session_id;
-  $("rpHeader").innerHTML = `
-    <div class="rp-active-header">
-      <span>${r.icon||"🎭"} ${r.title}</span>
-      <div style="font-size:12px;color:var(--text2)">
-        Sen: <b>${r.user_role}</b> · AI: <b>${r.ai_role}</b>
-      </div>
-    </div>`;
-
-  appendRpMsg("assistant", r.response, r.offline||false);
-  // Foydali iboralarni ko'rsatish
-  const hints = RP_HINTS[scenarioId] || RP_HINTS.friend;
-  $("rpHints").innerHTML = hints.map(h=>
-    `<button class="rp-hint-chip" onclick="insertRpText('${h}')">${h}</button>`
-  ).join("");
-  if(r.offline) toast("📵 Offline rejim","info",1500);
-}
-
-function appendRpMsg(role, content, offline=false){
-  const msgs = $("rpMessages");
-  const div  = document.createElement("div");
-  div.className = `chat-msg ${role}`;
-  const avatar = role==="assistant"?"🤖":"👤";
-  const offTag = offline?`<span class="msg-offline-tag">📵</span>`:"";
-  const ttsText = content.split("\n")[0].replace(/[()]/g,"").trim();
-  div.innerHTML = `
-    <div class="msg-avatar">${avatar}</div>
-    <div class="msg-body">
-      <div class="msg-bubble">${content.replace(/\n/g,"<br>").replace(/\[(.*?)\]/g,"<span class='err-right'>[$1]</span>")}${offTag}</div>
-      <div class="msg-actions">
-        <button class="tts-msg-btn" onclick="ttsSpeakEl(this)"
-          data-text="${ttsText.replace(/"/g,'&quot;')}" title="Eshitish">🔊</button>
-      </div>
-    </div>`;
-  msgs.appendChild(div);
-  msgs.scrollTop = msgs.scrollHeight;
-  if(role==="assistant"&&Chat.ttsEnabled) ttsSpeak(ttsText, true);
-}
-
-async function sendRoleplay(){
-  const inp = $("rpInput");
-  const msg = inp?.value.trim();
-  if(!msg||RpState.isTyping) return;
-  inp.value = "";
-  appendRpMsg("user", msg);
-  RpState.isTyping = true;
-
-  const div = document.createElement("div");
-  div.className="chat-msg assistant typing-msg"; div.id="rpTyping";
-  div.innerHTML=`<div class="msg-avatar">🤖</div><div class="msg-body"><div class="msg-bubble typing-dots"><span></span><span></span><span></span></div></div>`;
-  $("rpMessages").appendChild(div); $("rpMessages").scrollTop=$("rpMessages").scrollHeight;
-
-  const r = await api("/api/roleplay/chat",{method:"POST",
-    body:JSON.stringify({session_id:RpState.sessionId, message:msg})});
-  document.getElementById("rpTyping")?.remove();
-  RpState.isTyping = false;
-
-  if(r?.ok) appendRpMsg("assistant", r.response, r.offline||false);
-  else      appendRpMsg("assistant","❌ Xatolik yuz berdi");
-}
-
 function insertRpText(txt){
   const inp=$("rpInput"); if(inp){inp.value=txt;inp.focus();}
-}
-
-function toggleRpMic(){
-  // Mavjud toggleMic funksiyasini roleplay uchun moslashtirish
-  const btn=$("rpMicBtn");
-  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-  if(!SR){toast("❌ Mikrofon qo'llab-quvvatlanmaydi","warn");return;}
-  if(Chat.micActive){Chat.recognition?.stop();return;}
-  const rec=new SR(); rec.lang="ru-RU"; rec.continuous=false;
-  Chat.recognition=rec; Chat.micActive=true;
-  if(btn){btn.textContent="🔴";}
-  rec.onresult=e=>{
-    const t=Array.from(e.results).map(r=>r[0].transcript).join("");
-    const inp=$("rpInput"); if(inp) inp.value=t;
-  };
-  rec.onend=()=>{Chat.micActive=false;if(btn)btn.textContent="🎤";};
-  rec.onerror=()=>{Chat.micActive=false;if(btn)btn.textContent="🎤";};
-  rec.start();
-}
-
-async function endRoleplay(){
-  if(!RpState.sessionId) return;
-  const r = await api("/api/roleplay/end",{method:"POST",
-    body:JSON.stringify({session_id:RpState.sessionId})});
-  $("rpChat").style.display    = "none";
-  $("rpEndBtn").style.display  = "none";
-  $("rpResult").style.display  = "block";
-  const score   = r?.score||0;
-  const turns   = r?.turns||0;
-  const emoji   = score>=70?"🏆":score>=40?"🎉":"💪";
-  $("rpScore").textContent  = `${score} ball · ${turns} ta gap`;
-  $("rpFeedback").innerHTML = `
-    <div class="rp-feedback">
-      ${emoji} ${score>=70?"Ajoyib suhbat!":score>=40?"Yaxshi mashq!":"Davom eting, har safar yaxshilanasiz!"}
-      <br><span class="muted">Streak yangilandi 🔥 +${Math.round(score/2)} XP</span>
-    </div>`;
-  await loadProfile();
-  if(r?.ok) toast(`🎭 ${r.score} ball! +${Math.round(r.score/2)} XP`,"success");
-}
-
-function showRpScenarios(){
-  $("rpResult").style.display    = "none";
-  $("rpScenarios").style.display = "block";
-  RpState.sessionId = null;
 }
 
 // ══════════════════════════════════════════════════
@@ -2523,15 +1459,7 @@ function showRpScenarios(){
 // ══════════════════════════════════════════════════
 
 // ── Panel holat ───────────────────────────────────
-const Panel = {
-  open:    false,
-  tab:     "qwords",
-  qwords:  [],
-  names:   [],
-  qa:      [],
-  synonyms:[],
-  banned:  [],
-};
+
 
 // ── Panel ochish / yopish ─────────────────────────
 function openAIPanel(){
@@ -2754,43 +1682,6 @@ async function loadQA(){
 
 // QA real-vaqt saqlash — debounce 600ms
 let _qaSaveTimer = null;
-function _qaAutoSave(){
-  clearTimeout(_qaSaveTimer);
-  const qw  = ($("qaQWord")?.value  || "").trim().toLowerCase();
-  const nm  = ($("qaName")?.value   || "").trim().toLowerCase();
-  const ans = ($("qaAnswer")?.value || "").trim();
-  if(!qw || !nm || !ans) return;                 // to'liq emas — kutish
-  _qaShowSaveStatus("⏳ Saqlanmoqda...", "pending");
-  _qaSaveTimer = setTimeout(()=>_doSaveQA(qw,nm,ans), 600);
-}
-
-async function _doSaveQA(qw, nm, ans){
-  const r = await api("/api/panel/qa",{
-    method:"POST",
-    body:JSON.stringify({q_word:qw, name:nm, answer:ans}),
-  });
-  if(r?.ok){
-    _qaShowSaveStatus(`✅ Saqlandi (${qw} + ${nm})`, "ok");
-    // Ro'yxatni yangilash (formni TOZALAMAYDI — foydalanuvchi davom ettirsin)
-    loadQA(); loadNames(); loadQWords(); loadPanelStats();
-  } else {
-    _qaShowSaveStatus("❌ "+( r?.error||"Xatolik"), "err");
-  }
-}
-
-function _qaShowSaveStatus(msg, type){
-  let el = $("qaSaveStatus");
-  if(!el){
-    el = document.createElement("div");
-    el.id = "qaSaveStatus";
-    el.style.cssText="font-size:11px;font-weight:700;padding:4px 8px;border-radius:5px;margin-top:4px;transition:all .2s";
-    const form = $("apTab-qa")?.querySelector(".ap-form");
-    if(form) form.appendChild(el);
-  }
-  el.textContent = msg;
-  const colors = { ok:"var(--green)", err:"var(--red)", pending:"var(--yellow)" };
-  el.style.color = colors[type]||"var(--text2)";
-}
 
 async function saveQA(){
   const qw  = ($("qaQWord")?.value  || "").trim().toLowerCase();
@@ -3027,14 +1918,6 @@ function _renderTestHistory(){
 }
 
 // ── navigate orqali panel yuklanishi ──────────────
-// loadChatHistory ga qo'shimcha
-const _origLoadChat = loadChatHistory;
-async function loadChatHistory(){
-  await _origLoadChat();
-  // Agar panel ochiq bo'lsa, statsni yangilash
-  if(Panel.open) loadPanelStats();
-}
-
 // ══════════════════════════════════════════════════
 // CLOCK — Real-vaqt soat va dars eslatmasi
 // ══════════════════════════════════════════════════
@@ -3078,7 +1961,7 @@ document.addEventListener("keydown",e=>{
     "1":()=>navigate("home"), "2":()=>navigate("vocabulary"),
     "3":()=>navigate("flashcards"), "4":()=>navigate("grammar"),
     "5":()=>navigate("games"), "6":()=>navigate("quiz"),
-    "7":()=>navigate("chat"), "8":()=>navigate("schedule"),
+    "7":()=>navigate('home'), "8":()=>navigate("schedule"),
     "9":()=>navigate("progress"),
   };
   if(shortcuts[e.key] && (e.ctrlKey||e.altKey)){ e.preventDefault(); shortcuts[e.key](); }

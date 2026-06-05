@@ -53,85 +53,8 @@ app = Flask(__name__)
 app.secret_key = secrets.token_hex(32)
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
 
-# ── GOOGLE GEMINI API (bepul: 1500 so'rov/kun) ───
-# Kalit olish: https://aistudio.google.com/app/apikey
-# Kalit saqlash: app.py yonida .env fayl yarating:
-#   GEMINI_API_KEY=sizning_kalitingiz_shu_yerga
-GEMINI_MODEL = "gemini-1.5-flash"
 
-def _load_env_key():
-    """app.py yonidagi .env fayldan GEMINI_API_KEY ni o'qiydi"""
-    env_path = BASE_DIR / ".env"
-    if env_path.exists():
-        for line in env_path.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if line.startswith("GEMINI_API_KEY=") and not line.startswith("#"):
-                return line.split("=", 1)[1].strip().strip('"').strip("'")
-    return ""
 
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") or _load_env_key()
-
-def call_ai(messages, system_prompt="", max_tokens=1000):
-    """Google Gemini API chaqiruvi (bepul, tashqi kutubxonasiz)"""
-    import urllib.request
-    if not GEMINI_API_KEY:
-        return None
-
-    # Gemini format: system + messages → contents
-    contents = []
-    if system_prompt:
-        contents.append({
-            "role": "user",
-            "parts": [{"text": f"[Tizim ko'rsatmasi]: {system_prompt}"}]
-        })
-        contents.append({
-            "role": "model",
-            "parts": [{"text": "Tushundim, shu ko'rsatmalarga amal qilaman."}]
-        })
-
-    for msg in messages:
-        role = "user" if msg["role"] == "user" else "model"
-        contents.append({"role": role, "parts": [{"text": msg["content"]}]})
-
-    payload = {
-        "contents": contents,
-        "generationConfig": {
-            "maxOutputTokens": max_tokens,
-            "temperature": 0.7,
-        }
-    }
-    url = (
-        f"https://generativelanguage.googleapis.com/v1beta/models/"
-        f"{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
-    )
-    data = json.dumps(payload).encode("utf-8")
-    # AQ. prefiksi → x-goog-api-key header orqali yuboriladi
-    if GEMINI_API_KEY.startswith("AQ."):
-        req = urllib.request.Request(
-            f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent",
-            data=data,
-            headers={"Content-Type": "application/json", "x-goog-api-key": GEMINI_API_KEY},
-            method="POST"
-        )
-    else:
-        req = urllib.request.Request(
-            url, data=data,
-            headers={"Content-Type": "application/json"},
-            method="POST"
-        )
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            result = json.loads(resp.read())
-            return result["candidates"][0]["content"]["parts"][0]["text"]
-    except urllib.error.HTTPError as e:
-        body = e.read().decode("utf-8", errors="ignore")
-        print(f"[Gemini HTTP {e.code}]: {body[:300]}")
-        return None
-    except Exception as e:
-        print(f"[Gemini xato]: {e}")
-        return None
-
-# ── DATABASE ──────────────────────────────────────
 class Database:
     def __init__(self):
         self.conn = sqlite3.connect(str(DB_PATH), check_same_thread=False)
@@ -144,347 +67,8 @@ class Database:
 
     def _create_tables(self):
         self.conn.executescript("""
-        -- Sozlamalar
-        CREATE TABLE IF NOT EXISTS settings (
-            key TEXT PRIMARY KEY, value TEXT
-        );
-
-        -- O'quvchi profili
-        CREATE TABLE IF NOT EXISTS profile (
-            id INTEGER PRIMARY KEY,
-            name TEXT DEFAULT 'O''quvchi',
-            level TEXT DEFAULT 'beginner',
-            total_xp INTEGER DEFAULT 0,
-            streak_days INTEGER DEFAULT 0,
-            last_study_date TEXT DEFAULT '',
-            created_at TEXT DEFAULT (datetime('now'))
-        );
-
-        -- Lug'at so'zlari
-        CREATE TABLE IF NOT EXISTS words (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            russian TEXT NOT NULL,
-            uzbek TEXT NOT NULL,
-            pronunciation TEXT DEFAULT '',
-            category TEXT DEFAULT 'general',
-            level TEXT DEFAULT 'beginner',
-            example_ru TEXT DEFAULT '',
-            example_uz TEXT DEFAULT '',
-            audio_file TEXT DEFAULT '',
-            image_url TEXT DEFAULT '',
-            times_seen INTEGER DEFAULT 0,
-            times_correct INTEGER DEFAULT 0,
-            times_wrong INTEGER DEFAULT 0,
-            next_review TEXT DEFAULT (datetime('now')),
-            ease_factor REAL DEFAULT 2.5,
-            interval_days INTEGER DEFAULT 1,
-            is_downloaded INTEGER DEFAULT 0,
-            edited_by_user INTEGER DEFAULT 0,
-            added_at TEXT DEFAULT (datetime('now'))
-        );
-
-        -- Grammatika qoidalari
-        CREATE TABLE IF NOT EXISTS grammar_rules (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            title TEXT NOT NULL,
-            content TEXT NOT NULL,
-            level TEXT DEFAULT 'beginner',
-            category TEXT DEFAULT 'general',
-            examples_json TEXT DEFAULT '[]',
-            exercises_json TEXT DEFAULT '[]',
-            is_downloaded INTEGER DEFAULT 0,
-            added_at TEXT DEFAULT (datetime('now'))
-        );
-
-        -- Dars jadvali
-        CREATE TABLE IF NOT EXISTS schedule (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            title TEXT NOT NULL,
-            description TEXT DEFAULT '',
-            lesson_type TEXT DEFAULT 'vocabulary',
-            scheduled_at TEXT NOT NULL,
-            duration_min INTEGER DEFAULT 30,
-            status TEXT DEFAULT 'pending',
-            completed_at TEXT DEFAULT '',
-            started_at TEXT DEFAULT '',
-            score INTEGER DEFAULT 0,
-            notified INTEGER DEFAULT 0
-        );
-
-        -- O'qish tarixi
-        CREATE TABLE IF NOT EXISTS study_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            lesson_type TEXT NOT NULL,
-            duration_sec INTEGER DEFAULT 0,
-            score INTEGER DEFAULT 0,
-            xp_earned INTEGER DEFAULT 0,
-            details_json TEXT DEFAULT '{}',
-            studied_at TEXT DEFAULT (datetime('now'))
-        );
-
-        -- O'yin natijalari
-        CREATE TABLE IF NOT EXISTS game_scores (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            game_type TEXT NOT NULL,
-            score INTEGER DEFAULT 0,
-            max_score INTEGER DEFAULT 0,
-            time_sec INTEGER DEFAULT 0,
-            played_at TEXT DEFAULT (datetime('now'))
-        );
-
-        -- AI suhbat tarixi
-        CREATE TABLE IF NOT EXISTS chat_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            role TEXT NOT NULL,
-            content TEXT NOT NULL,
-            is_corrected INTEGER DEFAULT 0,
-            correction TEXT DEFAULT '',
-            created_at TEXT DEFAULT (datetime('now'))
-        );
-
-        -- Offline yuklamalar
-        CREATE TABLE IF NOT EXISTS downloads (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            content_type TEXT NOT NULL,
-            content_id INTEGER NOT NULL,
-            file_path TEXT DEFAULT '',
-            size_kb INTEGER DEFAULT 0,
-            downloaded_at TEXT DEFAULT (datetime('now'))
-        );
-
-        -- Foydalanuvchi lug'ati (o'zi qo'shgan)
-        CREATE TABLE IF NOT EXISTS user_words (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            russian TEXT NOT NULL,
-            uzbek TEXT NOT NULL,
-            notes TEXT DEFAULT '',
-            added_at TEXT DEFAULT (datetime('now'))
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_words_level    ON words(level);
-        CREATE INDEX IF NOT EXISTS idx_words_review   ON words(next_review);
-        CREATE INDEX IF NOT EXISTS idx_schedule_time  ON schedule(scheduled_at);
-        CREATE INDEX IF NOT EXISTS idx_history_date   ON study_history(studied_at DESC);
-
-        -- AI xotira: foydalanuvchi o'rgatgan ma'lumotlar
-        CREATE TABLE IF NOT EXISTS ai_knowledge (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            question TEXT NOT NULL,
-            answer TEXT NOT NULL,
-            lang TEXT DEFAULT 'ru',
-            category TEXT DEFAULT 'general',
-            added_at TEXT DEFAULT (datetime('now')),
-            use_count INTEGER DEFAULT 0
-        );
-        CREATE INDEX IF NOT EXISTS idx_knowledge_q ON ai_knowledge(question);
-
-        -- ═══ AI BOSHQARUV PANELI JADVALLARI ═══════════
-
-        -- 1. Savol so'zlar (nima, kim, qachon, qayerda, qanday, nega...)
-        CREATE TABLE IF NOT EXISTS ai_question_words (
-            id      INTEGER PRIMARY KEY AUTOINCREMENT,
-            word    TEXT NOT NULL UNIQUE,
-            lang    TEXT DEFAULT 'uz',
-            enabled INTEGER DEFAULT 1,
-            added_at TEXT DEFAULT (datetime('now'))
-        );
-
-        -- 2. Nomlar (mashina, kubik, poytaxt, prezident...)
-        CREATE TABLE IF NOT EXISTS ai_names (
-            id      INTEGER PRIMARY KEY AUTOINCREMENT,
-            name    TEXT NOT NULL UNIQUE,
-            q_words TEXT DEFAULT '',   -- bog'liq savol so'zlar (vergul bilan)
-            added_at TEXT DEFAULT (datetime('now'))
-        );
-
-        -- 3. Savol+Nom birikmasi uchun javoblar
-        CREATE TABLE IF NOT EXISTS ai_qa_pairs (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            q_word      TEXT NOT NULL,
-            name        TEXT NOT NULL,
-            answer      TEXT NOT NULL,
-            use_count   INTEGER DEFAULT 0,
-            updated_at  TEXT DEFAULT (datetime('now')),
-            UNIQUE(q_word, name)
-        );
-
-        -- 4. Sinonimlar guruhlari
-        CREATE TABLE IF NOT EXISTS ai_synonym_groups (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            group_name  TEXT NOT NULL,
-            synonyms    TEXT NOT NULL,   -- JSON array
-            answer      TEXT NOT NULL,
-            added_at    TEXT DEFAULT (datetime('now'))
-        );
-
-        -- 5. Taqiqlangan so'zlar va maxsus javoblar
-        CREATE TABLE IF NOT EXISTS ai_banned_words (
-            id      INTEGER PRIMARY KEY AUTOINCREMENT,
-            word    TEXT NOT NULL UNIQUE,
-            answer  TEXT NOT NULL,
-            enabled INTEGER DEFAULT 1,
-            added_at TEXT DEFAULT (datetime('now'))
-        );
-
-        -- Standart javob (hech narsa topilmasa)
-        CREATE TABLE IF NOT EXISTS ai_default_response (
-            id      INTEGER PRIMARY KEY CHECK (id = 1),
-            text    TEXT NOT NULL DEFAULT 'Kechirasiz, bu savolga javobim yo''q. Boshqa narsa so''rasangiz yordam beraman!'
-        );
-        INSERT OR IGNORE INTO ai_default_response(id,text)
-        VALUES(1,'Kechirasiz, bu savolga javobim yo''q. Boshqa narsa so''rasangiz yordam beraman!');
-
-        -- Foydalanuvchi profil xotirasi
-        CREATE TABLE IF NOT EXISTS user_memory (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            key TEXT NOT NULL UNIQUE,
-            value TEXT NOT NULL,
-            updated_at TEXT DEFAULT (datetime('now'))
-        );
-
-        -- Cloze test savollari (bo'shliq to'ldirish)
-        CREATE TABLE IF NOT EXISTS cloze_tests (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            sentence_ru TEXT NOT NULL,
-            sentence_uz TEXT NOT NULL,
-            answer TEXT NOT NULL,
-            options_json TEXT DEFAULT '[]',
-            category TEXT DEFAULT 'general',
-            level TEXT DEFAULT 'beginner',
-            times_seen INTEGER DEFAULT 0,
-            times_correct INTEGER DEFAULT 0
-        );
-
-        -- Adaptiv test natijalari (qaysi kategoriyalar kuchsiz)
-        CREATE TABLE IF NOT EXISTS adaptive_stats (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            category TEXT NOT NULL,
-            correct INTEGER DEFAULT 0,
-            wrong INTEGER DEFAULT 0,
-            last_tested TEXT DEFAULT (datetime('now')),
-            UNIQUE(category)
-        );
-
-        -- Roleplay sessiyalar
-        CREATE TABLE IF NOT EXISTS roleplay_sessions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            role_type TEXT NOT NULL,
-            user_role TEXT DEFAULT '',
-            ai_role TEXT DEFAULT '',
-            messages_json TEXT DEFAULT '[]',
-            score INTEGER DEFAULT 0,
-            started_at TEXT DEFAULT (datetime('now')),
-            ended_at TEXT DEFAULT ''
-        );
-
-        -- Streak kuzatuv
-        CREATE TABLE IF NOT EXISTS streak_log (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            date TEXT NOT NULL UNIQUE,
-            xp_earned INTEGER DEFAULT 0,
-            minutes INTEGER DEFAULT 0,
-            words_learned INTEGER DEFAULT 0
-        );
-
-        -- ═══ SAMARALI AI v3 — Python backend jadvallari ═══
-        -- sc_triggers: Savol so'zlar (nima, kim, qachon...)
-        CREATE TABLE IF NOT EXISTS sc_triggers (
-            id      INTEGER PRIMARY KEY AUTOINCREMENT,
-            word    TEXT NOT NULL UNIQUE,
-            enabled INTEGER DEFAULT 1,
-            added_at TEXT DEFAULT (datetime('now'))
-        );
-
-        -- sc_entities: Nomlar (mashina, poytaxt...)
-        CREATE TABLE IF NOT EXISTS sc_entities (
-            id       INTEGER PRIMARY KEY AUTOINCREMENT,
-            name     TEXT NOT NULL UNIQUE,
-            triggers TEXT DEFAULT '',
-            aliases  TEXT DEFAULT '',
-            added_at TEXT DEFAULT (datetime('now'))
-        );
-
-        -- sc_facts: Savol+Nom → Javob (SM-2 bilan)
-        CREATE TABLE IF NOT EXISTS sc_facts (
-            id           INTEGER PRIMARY KEY AUTOINCREMENT,
-            trigger_word TEXT NOT NULL,
-            entity       TEXT NOT NULL,
-            reply        TEXT NOT NULL,
-            variants_json TEXT DEFAULT '[]',
-            score        REAL DEFAULT 5,
-            use_count    INTEGER DEFAULT 0,
-            correct_count INTEGER DEFAULT 0,
-            wrong_count  INTEGER DEFAULT 0,
-            sm2_json     TEXT DEFAULT '{}',
-            created_at   TEXT DEFAULT (datetime('now')),
-            updated_at   TEXT DEFAULT (datetime('now')),
-            UNIQUE(trigger_word, entity)
-        );
-
-        -- sc_aliases: Sinonim guruhlar
-        CREATE TABLE IF NOT EXISTS sc_aliases (
-            id         INTEGER PRIMARY KEY AUTOINCREMENT,
-            words_json TEXT NOT NULL,
-            reply      TEXT NOT NULL,
-            fuzz       INTEGER DEFAULT 80,
-            added_at   TEXT DEFAULT (datetime('now'))
-        );
-
-        -- sc_blocklist: Taqiqlangan so'zlar
-        CREATE TABLE IF NOT EXISTS sc_blocklist (
-            id      INTEGER PRIMARY KEY AUTOINCREMENT,
-            word    TEXT NOT NULL UNIQUE,
-            reply   TEXT NOT NULL,
-            enabled INTEGER DEFAULT 1,
-            added_at TEXT DEFAULT (datetime('now'))
-        );
-
-        -- sc_ltm: Uzoq muddatli xotira
-        CREATE TABLE IF NOT EXISTS sc_ltm (
-            id       INTEGER PRIMARY KEY AUTOINCREMENT,
-            ltm_key  TEXT NOT NULL,
-            ltm_val  TEXT NOT NULL,
-            confidence REAL DEFAULT 0.8,
-            source   TEXT DEFAULT 'manual',
-            count    INTEGER DEFAULT 1,
-            learned_at TEXT DEFAULT (datetime('now'))
-        );
-        CREATE INDEX IF NOT EXISTS idx_sc_ltm_key ON sc_ltm(ltm_key);
-
-        -- sc_personality: AI shaxsiyati
-        CREATE TABLE IF NOT EXISTS sc_personality (
-            id     INTEGER PRIMARY KEY CHECK (id=1),
-            data_json TEXT NOT NULL DEFAULT '{}'
-        );
-        INSERT OR IGNORE INTO sc_personality(id,data_json)
         VALUES(1,'{"brief":5,"formal":5,"extra":3,"mood":"😐 Neytral","name":"Samarali AI","prefix":""}');
-
-        -- sc_default: Standart javob
-        CREATE TABLE IF NOT EXISTS sc_default (
-            id   INTEGER PRIMARY KEY CHECK (id=1),
-            text TEXT NOT NULL DEFAULT 'Hali bilmayman. O''rgatib qo''ysangiz, minnatdor bo''laman!'
-        );
-        INSERT OR IGNORE INTO sc_default(id,text)
         VALUES(1,'Hali bilmayman. O''rgatib qo''ysangiz, minnatdor bo''laman!');
-
-        -- sc_stats: Statistika
-        CREATE TABLE IF NOT EXISTS sc_stats (
-            id         INTEGER PRIMARY KEY CHECK (id=1),
-            data_json  TEXT NOT NULL DEFAULT '{}'
-        );
-        INSERT OR IGNORE INTO sc_stats(id,data_json)
-        VALUES(1,'{"total":0,"learned":0,"correct":0,"wrong":0,"topicMap":{},"dayMap":{},"feedPos":0,"feedNeg":0,"rejected":0}');
-
-        -- sc_learn_log: O'rganish logi
-        CREATE TABLE IF NOT EXISTS sc_learn_log (
-            id         INTEGER PRIMARY KEY AUTOINCREMENT,
-            q          TEXT,
-            a          TEXT,
-            trigger_w  TEXT,
-            entity     TEXT,
-            log_type   TEXT,
-            logged_at  TEXT DEFAULT (datetime('now'))
-        );
         """)
         self.conn.commit()
 
@@ -519,98 +103,9 @@ class Database:
         if gr_cnt < 17:
             self._insert_grammar_rules()
         # Raqamlar to'liq ro'yxati (agar yo'q bo'lsa)
-        num_cnt = self.conn.execute(
-            "SELECT COUNT(*) as c FROM words WHERE category='numbers'").fetchone()["c"]
-        if num_cnt < 30:
-            self._insert_numbers_words()
-        # Tanishish so'zlari (agar yo'q bo'lsa)
-        intro_cnt = self.conn.execute(
-            "SELECT COUNT(*) as c FROM words WHERE category='introduction'").fetchone()["c"]
-        if intro_cnt < 20:
-            self._insert_introduction_words()
-        # Tanishish grammatikasi (agar yo'q bo'lsa)
-        intro_gr = self.conn.execute(
-            "SELECT COUNT(*) as c FROM grammar_rules WHERE category='introduction'").fetchone()["c"]
-        if intro_gr < 3:
-            self._insert_introduction_grammar()
-        # Yo'l/sayohat so'zlari
-        nav_cnt = self.conn.execute(
-            "SELECT COUNT(*) as c FROM words WHERE category='navigation'").fetchone()["c"]
-        if nav_cnt < 20:
-            self._insert_navigation_words()
-        # Yo'l grammatikasi
-        nav_gr = self.conn.execute(
-            "SELECT COUNT(*) as c FROM grammar_rules WHERE category='navigation'").fetchone()["c"]
-        if nav_gr < 2:
-            self._insert_navigation_grammar()
 
         # Cloze test boshlang'ich ma'lumotlar
-        self.cloze_seed()
         # AI panel boshlang'ich ma'lumotlar
-        self._seed_ai_panel()
-
-        # Yangi katta kategoriyalar
-        new_cats = [
-            ("time_ext",    15, "_insert_time_words"),
-            ("places",      15, "_insert_places_words"),
-            ("math",        15, "_insert_math_words"),
-            ("family_ext",  15, "_insert_family_words"),
-            ("clothing",    15, "_insert_clothing_words"),
-            ("animals",     15, "_insert_animals_words"),
-            ("transport",   15, "_insert_transport_words"),
-            ("body",        15, "_insert_body_words"),
-            ("school",      15, "_insert_school_words"),
-            ("weather",     15, "_insert_weather_words"),
-            ("house",       15, "_insert_house_words"),
-            ("sport",       15, "_insert_sport_words"),
-        ]
-        for cat, min_cnt, fn in new_cats:
-            cnt = self.conn.execute(
-                "SELECT COUNT(*) FROM words WHERE category=?", (cat,)).fetchone()[0]
-            if cnt < min_cnt:
-                getattr(self, fn)()
-
-    def _seed_ai_panel(self):
-        """AI Boshqaruv paneli boshlang'ich ma'lumotlari"""
-        # Savol so'zlar
-        qwords = ["nima","kim","qachon","qayerda","qanday","nega","qancha",
-                  "necha","qachongacha","что","кто","когда","где","как","почему","сколько"]
-        for w in qwords:
-            self.conn.execute(
-                "INSERT OR IGNORE INTO ai_question_words(word) VALUES(?)", (w,))
-
-        # Standart sinonimlar
-        import json
-        synonyms = [
-            ("Salom guruhi",  json.dumps(["salom","assalom","assalomu alaykum","привет","здравствуйте"]),
-             "Vaalaykum assalom! Qanday yordam bera olaman? 😊"),
-            ("Rahmat guruhi", json.dumps(["rahmat","tashakkur","спасибо","рахмет"]),
-             "Arzimaydi! Har doim yordam berishdan xursandman! 😊"),
-            ("Xayr guruhi",   json.dumps(["xayr","hayr","ko'rishguncha","пока","до свидания"]),
-             "Xayr! Ko'rishguncha! 👋"),
-        ]
-        for grp, syns, ans in synonyms:
-            self.conn.execute(
-                "INSERT OR IGNORE INTO ai_synonym_groups(group_name,synonyms,answer) VALUES(?,?,?)",
-                (grp, syns, ans))
-
-        # Namuna savol+nom juftliklari
-        examples = [
-            ("nima","poytaxt","O'zbekistonning poytaxti — Toshkent shahri 🏙️"),
-            ("nima","matematik","Matematika — son va shakllar haqidagi fan 📐"),
-            ("kim","prezident","O'zbekiston Prezidenti — Shavkat Mirziyoyev 🇺🇿"),
-        ]
-        for qw, nm, ans in examples:
-            # Avval nom qo'shish
-            self.conn.execute(
-                "INSERT OR IGNORE INTO ai_names(name, q_words) VALUES(?,?)",
-                (nm, qw))
-            self.conn.execute(
-                "INSERT OR IGNORE INTO ai_qa_pairs(q_word,name,answer) VALUES(?,?,?)",
-                (qw, nm, ans))
-
-        self.conn.commit()
-
     def _insert_starter_words(self):
         words = [
             # Salomlashish
@@ -2289,297 +1784,6 @@ class Database:
         return {"words_dl": dw, "grammar_dl": dg, "total_words": tw, "total_grammar": tg}
 
     # ── Foydalanuvchi xotirasi ─────────────────────
-    def memory_set(self, key, value):
-        with self._lock:
-            self.conn.execute(
-                "INSERT INTO user_memory(key,value,updated_at) VALUES(?,?,datetime('now')) "
-                "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=datetime('now')",
-                (key, str(value)))
-            self.conn.commit()
-
-    def memory_get(self, key, default=""):
-        r = self._row("SELECT value FROM user_memory WHERE key=?", (key,))
-        return r["value"] if r else default
-
-    def memory_all(self):
-        return {r["key"]: r["value"] for r in self._rows("SELECT key,value FROM user_memory")}
-
-    # ── Streak kuzatuv ─────────────────────────────
-    def streak_today(self, xp=0, minutes=0, words=0):
-        today = datetime.now().strftime("%Y-%m-%d")
-        with self._lock:
-            self.conn.execute(
-                "INSERT INTO streak_log(date,xp_earned,minutes,words_learned) VALUES(?,?,?,?) "
-                "ON CONFLICT(date) DO UPDATE SET "
-                "xp_earned=xp_earned+excluded.xp_earned, "
-                "minutes=minutes+excluded.minutes, "
-                "words_learned=words_learned+excluded.words_learned",
-                (today, xp, minutes, words))
-            self.conn.commit()
-
-    def streak_last_days(self, n=30):
-        return self._rows(
-            "SELECT * FROM streak_log ORDER BY date DESC LIMIT ?", (n,))
-
-    def streak_current(self):
-        rows = self._rows("SELECT date FROM streak_log ORDER BY date DESC LIMIT 60")
-        if not rows:
-            return 0
-        from datetime import date, timedelta
-        today = date.today()
-        streak = 0
-        for i, row in enumerate(rows):
-            expected = (today - timedelta(days=i)).strftime("%Y-%m-%d")
-            if row["date"] == expected:
-                streak += 1
-            else:
-                break
-        return streak
-
-    # ── Adaptiv test statistikasi ──────────────────
-    def adaptive_update(self, category, correct):
-        with self._lock:
-            self.conn.execute(
-                "INSERT INTO adaptive_stats(category,correct,wrong,last_tested) VALUES(?,?,?,datetime('now')) "
-                "ON CONFLICT(category) DO UPDATE SET "
-                "correct=correct+?, wrong=wrong+?, last_tested=datetime('now')",
-                (category, 1 if correct else 0, 0 if correct else 1,
-                 1 if correct else 0, 0 if correct else 1))
-            self.conn.commit()
-
-    def adaptive_weakest(self, limit=5):
-        """Eng kuchsiz kategoriyalar (xato ko'proq)"""
-        rows = self._rows(
-            "SELECT category, correct, wrong, "
-            "(wrong*1.0/(correct+wrong+1)) as err_rate "
-            "FROM adaptive_stats ORDER BY err_rate DESC LIMIT ?", (limit,))
-        return rows
-
-    def adaptive_stats_all(self):
-        cats = ["greeting","numbers","colors","family","food","verbs",
-                "adjectives","travel","work","health","nature","time",
-                "emotions","navigation","introduction","transport",
-                "animals","clothing","school","sport","math","body",
-                "house","weather","places"]
-        result = []
-        for cat in cats:
-            r = self._row("SELECT * FROM adaptive_stats WHERE category=?", (cat,))
-            if r:
-                total = r["correct"] + r["wrong"]
-                result.append({
-                    "category": cat,
-                    "correct":  r["correct"],
-                    "wrong":    r["wrong"],
-                    "total":    total,
-                    "pct":      round(r["correct"] / max(total,1) * 100),
-                })
-        return result
-
-    # ── Cloze testlar ──────────────────────────────
-    def cloze_seed(self):
-        """Boshlang'ich cloze testlar"""
-        if self._row("SELECT COUNT(*) as c FROM cloze_tests")["c"] >= 5:
-            return
-        tests = [
-            ("Я ___ в школу каждый день.",
-             "Men har kuni maktabga ___.",
-             "иду", json.dumps(["иду","едет","идут","едешь"]), "travel","beginner"),
-            ("Это ___ книга. Мне нравится!",
-             "Bu ___ kitob. Menga yoqdi!",
-             "интересная", json.dumps(["интересная","интересный","интересное","интересные"]), "adjectives","beginner"),
-            ("Меня зовут Алишер. Мне ___ лет.",
-             "Mening ismim Alisher. Menga ___ yosh.",
-             "двадцать", json.dumps(["двадцать","десять","сто","тысяча"]), "numbers","beginner"),
-            ("— Где вокзал? — Идите ___ , потом налево.",
-             "— Vokzal qayerda? — ___ boring, keyin chapga.",
-             "прямо", json.dumps(["прямо","назад","налево","направо"]), "navigation","beginner"),
-            ("Моя мама ___. Она лечит людей.",
-             "Mening onam ___. U odamlarni davolaydi.",
-             "врач", json.dumps(["врач","учитель","инженер","повар"]), "introduction","beginner"),
-            ("Сегодня ___ погода. Светит солнце.",
-             "Bugun ob-havo ___. Quyosh chiqdi.",
-             "хорошая", json.dumps(["хорошая","плохая","холодная","жаркая"]), "weather","beginner"),
-            ("Я люблю ___ музыку по вечерам.",
-             "Men kechqurunlari musiqa ___ sevaman.",
-             "слушать", json.dumps(["слушать","смотреть","читать","писать"]), "verbs","intermediate"),
-            ("В нашем городе есть красивый ___.",
-             "Bizning shahrimizda chiroyli ___ bor.",
-             "парк", json.dumps(["парк","завод","аптека","банк"]), "places","beginner"),
-            ("— Сколько ___ яблоко? — Десять рублей.",
-             "— Olma qancha ___? — O'n so'm.",
-             "стоит", json.dumps(["стоит","весит","есть","имеет"]), "shopping","beginner"),
-            ("Я учусь в ___. Моя специальность — информатика.",
-             "Men ___ da o'qiyman. Mutaxassisligim — informatika.",
-             "университете", json.dumps(["университете","школе","больнице","магазине"]), "school","intermediate"),
-            ("Кошка ___ на диване и спит.",
-             "Mushuk divanda ___ va uxlayapti.",
-             "лежит", json.dumps(["лежит","стоит","сидит","бежит"]), "animals","beginner"),
-            ("Зимой очень ___ . Нужна тёплая куртка.",
-             "Qishda juda ___. Iliq kurtka kerak.",
-             "холодно", json.dumps(["холодно","жарко","тепло","прохладно"]), "weather","beginner"),
-            ("Я ___ по-русски немного, но стараюсь.",
-             "Men rus tilida biroz ___, lekin harakat qilaman.",
-             "говорю", json.dumps(["говорю","пишу","читаю","понимаю"]), "introduction","beginner"),
-            ("На столе стоит стакан ___.",
-             "Stolda bir stakan ___ turibdi.",
-             "воды", json.dumps(["воды","молока","чая","сока"]), "food","beginner"),
-            ("Мой брат ___ в Ташкенте.",
-             "Mening akam Toshkentda ___.",
-             "живёт", json.dumps(["живёт","работает","учится","отдыхает"]), "family","intermediate"),
-        ]
-        for t in tests:
-            self.conn.execute(
-                "INSERT OR IGNORE INTO cloze_tests"
-                "(sentence_ru,sentence_uz,answer,options_json,category,level) VALUES(?,?,?,?,?,?)", t)
-        self.conn.commit()
-
-    def get_cloze_tests(self, level=None, category=None, limit=10):
-        q = "SELECT * FROM cloze_tests WHERE 1=1"
-        p = []
-        if level:    q += " AND level=?";    p.append(level)
-        if category: q += " AND category=?"; p.append(category)
-        q += " ORDER BY RANDOM() LIMIT ?"
-        p.append(limit)
-        return self._rows(q, p)
-
-    def cloze_result(self, cid, correct):
-        if correct:
-            self._exec("UPDATE cloze_tests SET times_seen=times_seen+1, times_correct=times_correct+1 WHERE id=?", (cid,))
-        else:
-            self._exec("UPDATE cloze_tests SET times_seen=times_seen+1 WHERE id=?", (cid,))
-
-    # ── Roleplay ───────────────────────────────────
-    def roleplay_start(self, role_type, user_role, ai_role):
-        return self._ins(
-            "INSERT INTO roleplay_sessions(role_type,user_role,ai_role,messages_json) VALUES(?,?,?,?)",
-            (role_type, user_role, ai_role, "[]"))
-
-    def roleplay_update(self, sid, messages, score=0):
-        self._exec(
-            "UPDATE roleplay_sessions SET messages_json=?, score=? WHERE id=?",
-            (json.dumps(messages), score, sid))
-
-    def roleplay_end(self, sid, score):
-        self._exec(
-            "UPDATE roleplay_sessions SET score=?, ended_at=datetime('now') WHERE id=?",
-            (score, sid))
-
-    def roleplay_get(self, sid):
-        return self._row("SELECT * FROM roleplay_sessions WHERE id=?", (sid,))
-
-    # ── Haftalik hisobot ───────────────────────────
-    def weekly_report(self):
-        from datetime import date, timedelta
-        today = date.today()
-        days = []
-        for i in range(6, -1, -1):
-            d = (today - timedelta(days=i)).strftime("%Y-%m-%d")
-            row = self._row("SELECT * FROM streak_log WHERE date=?", (d,))
-            days.append({
-                "date":         d,
-                "day":          (today - timedelta(days=i)).strftime("%a"),
-                "xp":           row["xp_earned"] if row else 0,
-                "minutes":      row["minutes"]    if row else 0,
-                "words":        row["words_learned"] if row else 0,
-            })
-
-        # So'zlar bo'yicha tahlil
-        worst = self.adaptive_weakest(5)
-
-        # Umumiy statistika
-        week_ago = (today - timedelta(days=7)).strftime("%Y-%m-%d")
-        total_xp     = sum(d["xp"] for d in days)
-        total_min    = sum(d["minutes"] for d in days)
-        total_words  = sum(d["words"] for d in days)
-        active_days  = sum(1 for d in days if d["xp"] > 0)
-        streak       = self.streak_current()
-
-        # ── So'zlar o'sishi (30 kunlik) ──────────────
-        word_growth = []
-        for i in range(29, -1, -1):
-            d_str = (today - timedelta(days=i)).strftime("%Y-%m-%d")
-            row   = self._row("SELECT * FROM streak_log WHERE date=?", (d_str,))
-            word_growth.append({
-                "date":  d_str,
-                "words": row["words_learned"] if row else 0,
-            })
-
-        # ── Daraja tarixi (XP kumulyativ 30 kun) ──
-        total_xp_now = (self._row("SELECT total_xp FROM profile WHERE id=1") or {}).get("total_xp", 0)
-        # Har kun XP ni qayta qurish
-        level_history = []
-        levels = [0, 200, 500, 1000, 2000, 4000, 9999]
-        level_names = ["Yangi","Boshlang'ich","O'rta","O'rta-yuqori","Ilg'or","Ustoz"]
-
-        def _xp_to_level(xp):
-            for i, threshold in enumerate(levels[1:]):
-                if xp < threshold:
-                    return i
-            return len(level_names) - 1
-
-        cumulative = total_xp_now
-        # so'nggidan boshlab: kecha_xp dan olishimiz mumkin emas,
-        # streak_log dan taxminiy hisoblaymiz
-        daily_xps = []
-        for i in range(29, -1, -1):
-            d_str = (today - timedelta(days=i)).strftime("%Y-%m-%d")
-            row   = self._row("SELECT xp_earned FROM streak_log WHERE date=?", (d_str,))
-            daily_xps.append(row["xp_earned"] if row else 0)
-
-        # Kumulyativ XP ni qayta hisoblash
-        xp_cumulative = total_xp_now
-        level_points  = []
-        for xp_day in reversed(daily_xps):
-            level_points.insert(0, xp_cumulative)
-            xp_cumulative = max(0, xp_cumulative - xp_day)
-
-        for i, xp_val in enumerate(level_points):
-            d_str = (today - timedelta(days=29-i)).strftime("%Y-%m-%d")
-            lv    = _xp_to_level(xp_val)
-            level_history.append({
-                "date":  d_str,
-                "xp":    xp_val,
-                "level": lv,
-                "level_name": level_names[min(lv, len(level_names)-1)],
-            })
-
-        # ── Radar: so'z statistikasini ham qo'shish ─
-        radar_data = self.adaptive_stats_all()
-        # So'z statistikasidan ham to'ldirish (test bo'lmasa ham ko'rinsin)
-        word_cats = self._rows(
-            "SELECT category, COUNT(*) as total, "
-            "SUM(CASE WHEN times_correct>0 THEN 1 ELSE 0 END) as learned "
-            "FROM words GROUP BY category"
-        )
-        word_cat_map = {r["category"]: r for r in word_cats}
-        existing_cats = {r["category"] for r in radar_data}
-        for wcat in word_cats:
-            if wcat["category"] not in existing_cats and wcat["total"] > 0:
-                pct = round(wcat["learned"] / max(wcat["total"], 1) * 100)
-                radar_data.append({
-                    "category": wcat["category"],
-                    "correct":  wcat["learned"],
-                    "wrong":    wcat["total"] - wcat["learned"],
-                    "total":    wcat["total"],
-                    "pct":      pct,
-                })
-
-        return {
-            "days":          days,
-            "total_xp":      total_xp,
-            "total_min":     total_min,
-            "total_words":   total_words,
-            "active_days":   active_days,
-            "streak":        streak,
-            "weakest_cats":  worst,
-            "radar":         radar_data,
-            "word_growth":   word_growth,
-            "level_history": level_history,
-            "current_xp":    total_xp_now,
-        }
-
-
-# ── Global DB ─────────────────────────────────────
 db = Database()
 
 
@@ -2864,404 +2068,7 @@ def api_game_score():
 # ══════════════════════════════════════════════════
 
 # ── AI Xotira ─────────────────────────────────────
-def ai_knowledge_search(question):
-    q = question.lower().strip()
-    rows = db._rows("SELECT * FROM ai_knowledge ORDER BY use_count DESC")
-    for row in rows:
-        rq = row["question"].lower()
-        if rq in q or q in rq or any(w in q for w in rq.split() if len(w) > 3):
-            db._exec("UPDATE ai_knowledge SET use_count=use_count+1 WHERE id=?", (row["id"],))
-            return row["answer"]
-    return None
 
-
-def ai_knowledge_add(question, answer, lang="ru", category="general"):
-    existing = db._row("SELECT id FROM ai_knowledge WHERE question=?", (question.strip(),))
-    if existing:
-        db._exec("UPDATE ai_knowledge SET answer=?,lang=?,category=? WHERE id=?",
-                 (answer.strip(), lang, category, existing["id"]))
-        return existing["id"]
-    return db._ins(
-        "INSERT INTO ai_knowledge(question,answer,lang,category) VALUES(?,?,?,?)",
-        (question.strip(), answer.strip(), lang, category)
-    )
-
-
-def ai_knowledge_list():
-    return db._rows("SELECT * FROM ai_knowledge ORDER BY added_at DESC LIMIT 100")
-
-
-# ══════════════════════════════════════════════════
-# AI PANEL ENGINE — javob topish tartibi
-# 1) Taqiqlangan so'z  2) Matematika  3) Sinonim
-# 4) Savol+Nom juftligi  5) Standart javob
-# ══════════════════════════════════════════════════
-import re as _re_engine, math as _math_engine
-
-def _panel_engine(user_msg: str) -> dict | None:
-    """
-    AI panel orqali kiritilgan ma'lumotlar asosida javob qaytaradi.
-    None qaytarsa — panel javob bera olmadi, oddiy AI ishlasin.
-    """
-    text  = user_msg.strip()
-    lower = text.lower()
-
-    # ── 1. TAQIQLANGAN SO'ZLAR ─────────────────────
-    bans = db._rows(
-        "SELECT word, answer FROM ai_banned_words WHERE enabled=1")
-    for ban in bans:
-        if ban["word"].lower() in lower:
-            return {"answer": ban["answer"], "source": "banned",
-                    "matched": ban["word"]}
-
-    # ── 2. MATEMATIKA ──────────────────────────────
-    math_result = _try_math(text)
-    if math_result is not None:
-        return {"answer": math_result, "source": "math"}
-
-    # ── 3. SINONIMLAR ──────────────────────────────
-    syn_groups = db._rows("SELECT * FROM ai_synonym_groups")
-    for grp in syn_groups:
-        try:
-            syns = json.loads(grp["synonyms"])
-        except Exception:
-            syns = [grp["synonyms"]]
-        for s in syns:
-            if s.lower() in lower or lower in s.lower():
-                return {"answer": grp["answer"], "source": "synonym",
-                        "group": grp["group_name"]}
-
-    # ── 4. SAVOL SO'Z + NOM JUFTLIGI ──────────────
-    q_words = db._rows(
-        "SELECT word FROM ai_question_words WHERE enabled=1")
-    names   = db._rows("SELECT name FROM ai_names")
-
-    found_q  = None
-    found_nm = None
-    for qw in q_words:
-        w = qw["word"].lower()
-        if w in lower:
-            found_q = w
-            break
-
-    for nm in names:
-        n = nm["name"].lower()
-        if n in lower:
-            found_nm = n
-            break
-
-    if found_q and found_nm:
-        pair = db._row(
-            "SELECT * FROM ai_qa_pairs WHERE q_word=? AND name=?",
-            (found_q, found_nm))
-        if pair:
-            db._exec(
-                "UPDATE ai_qa_pairs SET use_count=use_count+1 WHERE id=?",
-                (pair["id"],))
-            return {"answer": pair["answer"], "source": "qa_pair",
-                    "q_word": found_q, "name": found_nm}
-
-    # Faqat nom topilsa (savol so'zsiz ham javob berish)
-    if found_nm:
-        best = db._row(
-            "SELECT * FROM ai_qa_pairs WHERE name=? ORDER BY use_count DESC LIMIT 1",
-            (found_nm,))
-        if best:
-            db._exec(
-                "UPDATE ai_qa_pairs SET use_count=use_count+1 WHERE id=?",
-                (best["id"],))
-            return {"answer": best["answer"], "source": "qa_name_only",
-                    "name": found_nm}
-
-    # ── 5. STANDART JAVOB ──────────────────────────
-    # (None qaytarib, Gemini ishlasin — standart javobni JS ko'rsatadi)
-    return None
-
-
-def _try_math(text: str):
-    """Xabardagi matematik ifodani hisoblaydi. None qaytarsa — ifoda yo'q."""
-    import re as _re, math as _math
-    if not _re.search(r'\d', text):
-        return None
-
-    t = text.lower().strip()
-    # O'zbek/Rus so'zlarni belgilarga
-    word_ops = [
-        (r"qo[''`]shish", '+'), (r"ayirish", '-'),
-        (r"ko[''`]paytirish", '*'), (r"bo[''`]lish", '/'),
-        (r"plus", '+'), (r"minus", '-'), (r"daraja", '**'),
-        (r"foiz", '/100'), (r"процент", '/100'),
-        (r"сложить", '+'), (r"вычесть", '-'),
-        (r"умножить на", '*'), (r"разделить на", '/'),
-    ]
-    expr = t
-    for pat, repl in word_ops:
-        expr = _re.sub(r'\b' + pat + r'\b', repl, expr)
-
-    # sqrt / ildiz
-    expr = _re.sub(
-        r'(?:sqrt|ildiz|корень)\s*\(?\s*(\d+(?:\.\d+)?)\s*\)?',
-        lambda m: str(round(_math.sqrt(float(m.group(1))), 6)), expr)
-
-    # Unicode amallar
-    expr = expr.replace('×','*').replace('÷','/') \
-               .replace('²','**2').replace('³','**3').replace('^','**')
-
-    # Faqat raqam va amallarni qoldirish
-    clean = _re.sub(r'[^0-9+\-*/(). ]', ' ', expr).strip()
-    if not clean or not _re.search(r'\d', clean):
-        return None
-    if not _re.search(r'[+\-*/()]', clean):
-        return None
-
-    try:
-        result = eval(clean, {"__builtins__": {}})
-        if isinstance(result, float):
-            result = round(result, 8)
-            if result == int(result):
-                result = int(result)
-        expr_show = _re.sub(r'\s+', '', clean)
-        return f"🧮 **{result}**\n_{expr_show} = {result}_"
-    except ZeroDivisionError:
-        return "❌ Nolga bo'lib bo'lmaydi!"
-    except Exception:
-        return None
-
-
-# ── System prompt ─────────────────────────────────
-def _chat_system(level, mode="text", topic="free", custom_topic="", lang="auto"):
-    lvl_hints = {
-        "beginner":     "Juda oddiy gaplar ishlat. Har bir rus so'z yoniga o'zbekcha tarjima qo'y.",
-        "intermediate": "O'rta murakkablikdagi gaplar. Yangi so'zlarni izohla.",
-        "advanced":     "To'liq rus tilida gaplash. Murakkab grammatikadan foydalangin.",
-    }
-    hint = lvl_hints.get(level, lvl_hints["beginner"])
-    topic_map = {
-        "greet":"Salomlashish","travel":"Sayohat","food":"Ovqat",
-        "family":"Oila","weather":"Ob-havo","numbers":"Raqamlar",
-        "hobbies":"Qiziqishlar","school":"Ta'lim","work":"Ish",
-        "health":"Sog'liq","sport":"Sport","city":"Shahar",
-        "shopping":"Xarid","cinema":"Kino","tech":"Texnologiya",
-    }
-    topic_ctx = ""
-    if topic == "free" and custom_topic:
-        topic_ctx = f"Mavzu: '{custom_topic}'. Shu mavzu atrofida suhbat olib bor.\n"
-    elif topic in topic_map:
-        topic_ctx = f"Mavzu: {topic_map[topic]}. Shu mavzu doirasida suhbat qil.\n"
-
-    # ── Foydalanuvchi xotirasi ─────────────────────
-    mem = db.memory_all()
-    mem_ctx = ""
-    if mem:
-        mem_ctx = "FOYDALANUVCHI HAQIDA BILADIGANLARIM:\n"
-        labels = {
-            "user_name": "Ismi", "user_age": "Yoshi",
-            "user_city": "Shahri", "user_job": "Kasbi",
-            "user_hobbies": "Qiziqishlari", "user_goal": "Maqsadi",
-            "user_weak_topic": "Kuchsiz mavzu", "user_notes": "Eslatma",
-        }
-        for k, v in mem.items():
-            if v and k in labels:
-                mem_ctx += f"  {labels[k]}: {v}\n"
-        mem_ctx += "\n"
-
-    # ── Bugungi statistika ──────────────────────────
-    try:
-        today_row = db._row("SELECT * FROM streak_log WHERE date=date('now','localtime')")
-        goals_words   = int(db.memory_get("daily_goal_words", "10"))
-        goals_minutes = int(db.get_setting("daily_goal_min",  "30"))
-        goals_xp      = int(db.memory_get("daily_goal_xp",    "50"))
-        t_words   = today_row["words_learned"] if today_row else 0
-        t_minutes = today_row["minutes"]       if today_row else 0
-        t_xp      = today_row["xp_earned"]     if today_row else 0
-        streak    = db.streak_current()
-        # Kuchsiz kategoriyalar
-        weakest = db.adaptive_weakest(3)
-        weak_cats = ", ".join(w["category"] for w in weakest) if weakest else "ma'lumot yo'q"
-        stat_ctx = (
-            f"BUGUNGI PROGRESS:\n"
-            f"  So'zlar: {t_words}/{goals_words} | "
-            f"Daqiqa: {t_minutes}/{goals_minutes} | "
-            f"XP: {t_xp}/{goals_xp} | Streak: {streak} kun\n"
-            f"  Kuchsiz mavzular: {weak_cats}\n\n"
-        )
-    except Exception:
-        stat_ctx = ""
-
-    # ── O'rgatilgan bilimlar ────────────────────────
-    knowledge = ai_knowledge_list()
-    know_ctx = ""
-    if knowledge:
-        know_ctx = "XOTIRAMDA MAVJUD MA'LUMOTLAR:\n"
-        for k in knowledge[:15]:
-            know_ctx += f"  {k['question']} => {k['answer']}\n"
-        know_ctx += "\n"
-
-    # ── Til konteksti ───────────────────────────────
-    lang_ctx = ""
-    if lang == "uz":
-        lang_ctx = "Foydalanuvchi O'ZBEK tilida — O'ZBEK TILIDA javob ber (rus izoh bilan)!\n"
-    elif lang == "ru":
-        lang_ctx = "Foydalanuvchi RUS tilida — RUS TILIDA javob ber (o'zbek tarjima bilan)!\n"
-    else:
-        lang_ctx = "Tilni aniqlash: o'zbek so'z → o'zbekcha, rus → ruscha javob.\n"
-
-    base = (
-        "Sen 'RusLearn Pro' illovasidagi shaxsiylashtirilgan AI o'qituvchisan — ismim Alex.\n"
-        f"Foydalanuvchi darajasi: {level}. {hint}\n"
-        f"{lang_ctx}"
-        f"{topic_ctx}"
-        f"{mem_ctx}"
-        f"{stat_ctx}"
-        f"{know_ctx}"
-        "QOIDALAR:\n"
-        "1. Foydalanuvchini ISMI bilan murojaat qil (agar bilsang).\n"
-        "2. Xato ko'rsat: ❌ xato → ✅ to'g'ri.\n"
-        "3. Maqsadga intilishni rag'batlantir: bugungi progress yaxshi bo'lsa tabriklash.\n"
-        "4. Kuchsiz mavzularda ko'proq savol ber.\n"
-        "5. Bilmagan savolda: 'bu haqida ma'lumotim yo'q' de,\n"
-        "   ACTIONS: [{\"label\":\"✅ Ha, o'rgataman\",\"action\":\"teach\","
-        "\"question\":\"<savol>\",\"hint\":\"Javobni yozing...\"},"
-        "{\"label\":\"➡️ Yo'q, davom eting\",\"action\":\"skip\"}]\n"
-        "6. Ba'zan: ❓ test ber | bugungi kun haqida so'ra | motivatsion gap ayt.\n"
-        "7. 4-6 gapdan oshirma.\n"
-    )
-    if mode == "choice":
-        base += (
-            "\nTUGMALI REJIM: Javob oxirida 3-4 variant:\n"
-            "CHOICES: [variant1] | [variant2] | [variant3] | [variant4]\n"
-        )
-    return base
-
-
-def _build_messages(history, user_msg):
-    messages = []
-    for h in reversed(history):
-        messages.append({"role": h["role"], "content": h["content"]})
-    messages.append({"role": "user", "content": user_msg})
-    return messages
-
-
-def _detect_lang(text):
-    uz_words = {"men","sen","u","biz","siz","ular","va","yoki","bu","shu","nima",
-                "qanday","qayerda","ha","yoq","rahmat","xayr","salom","iltimos",
-                "bugun","ertaga","kecha","qanaqa","kim","nega","hozir"}
-    cyrillic = sum(1 for c in text if '\u0400' <= c <= '\u04FF')
-    words    = set(text.lower().split())
-    if words & uz_words:
-        return "uz"
-    if cyrillic > len(text) * 0.3:
-        return "ru"
-    return "uz"
-
-
-def _parse_actions(response):
-    import re as _re
-    m = _re.search(r'ACTIONS:\s*(\[.*?\])', response, _re.DOTALL)
-    if not m:
-        return response, []
-    try:
-        actions  = json.loads(m.group(1))
-        clean    = response[:m.start()].strip()
-        return clean, actions
-    except Exception:
-        return response, []
-
-
-def offline_ai_response(user_msg, level="beginner"):
-    import random
-    msg  = user_msg.lower().strip()
-    lang = _detect_lang(user_msg)
-
-    known = ai_knowledge_search(user_msg)
-    if known:
-        return f"✅ {known}"
-
-    uz_patterns = [
-        (["salom","assalom","hi","hey","xayrli"],
-         "Salom! 👋 Qanday ishlar?\nRus tilida: Привет! Как дела?"),
-        (["xayr","ko'rishguncha","hayr"],
-         "Xayr! 👋 Ko'rishguncha!\nRus tilida: До свидания!"),
-        (["rahmat","tashakkur"],
-         "Arzimaydi! 😊 Marhamat!\nRus tilida: Пожалуйста!"),
-        (["qanday","nima yangilik","kayfiyat","kun qanday"],
-         "Yaxshi, rahmat! 😊 Sen qanday?\nBugun nima o'rgandingiz?"),
-        (["bugun","ertaga","kecha","kun","vaqt"],
-         "Vaqt haqida! ⏰\nBugun=сегодня, ertaga=завтра, kecha=вчера\n❓ Bugungi kuningiz qanday o'tdi?"),
-        (["test","savol","imtihon","mashq"],
-         "❓ Mini-test!\n'Яхши' nima degani?\na) Plохой  b) Хороший  c) Нормально\nJavob: b) Хороший = Yaxshi"),
-        (["grammatika","qoida","kelishik","fe'l"],
-         "Grammatika! 📝\nRus tilida asosiy so'roqlar:\nКим?=Kim? Что?=Nima? Где?=Qayerda?\nКогда?=Qachon? Как?=Qanday?"),
-        (["toshkent","o'zbekiston","shahrimiz"],
-         "Toshkent — Ташкент! 🏙️\nO'zbekistonning poytaxti.\nRus tilida: Ташкент — столица Узбекистана."),
-        (["yordam","tushunmadim","nima degan"],
-         "Yordam uchun men bor! 💪\nInternetni yoqsangiz — to'liq AI!\nHozir offline rejimda ishlayapman."),
-    ]
-    ru_patterns = [
-        (["привет","здравствуй","добрый день"],
-         "Привет! 👋 Как дела?\n(Salom! Qanday ishlar?)"),
-        (["пока","до свидания"],
-         "До свидания! 👋\n(Xayr, ko'rishguncha!)"),
-        (["спасибо","благодарю"],
-         "Пожалуйста! 😊\n(Arzimaydi!)"),
-        (["как дела","как ты","как жизнь"],
-         "Спасибо, хорошо! 😊 А у тебя?\n(Rahmat, yaxshi! Sen qanday?)"),
-        (["сегодня","день","вечер","утро","вчера"],
-         "❓ Как прошёл ваш день?\n(Bugungi kuningiz qanday o'tdi?)"),
-        (["грамматика","падеж","глагол"],
-         "Грамматика 📝\nКак дела? — Qanday ishlar?\nЯ учусь — Men o'qiyapman\n❓ Попробуйте ответить по-русски!"),
-        (["тест","проверь","спроси меня"],
-         "❓ Мини-тест!\nКак будет 'Yaxshi' по-русски?\na) Плохо  b) Хорошо  c) Нормально"),
-        (["не знаю","не понимаю","помоги"],
-         "Помогу! 💪\nOffline rejimda cheklangan imkoniyatlar.\nInternetni yoqsangiz — to'liq AI!"),
-    ]
-    patterns = uz_patterns if lang == "uz" else ru_patterns
-    for kws, reply in patterns:
-        if any(w in msg for w in kws):
-            return reply
-
-    if any(c.isdigit() for c in msg):
-        return ("🔢 Raqamlar / Числа:\n1=один, 2=два, 3=три, 4=четыре, 5=пять\n"
-                "10=десять, 100=сто, 1000=тысяча\n"
-                "❓ 7 ruscha qanday?")
-
-    defaults = {
-        "uz": ["Tushunarli! 😊 Davom eting.","Yaxshi! ⭐ Rus tilida yozing.","❓ Bugun qanday so'z o'rgandingiz?"],
-        "ru": ["Интересно! 😊 Продолжайте.","Хорошо! ✅ Ещё раз по-русски?","❓ Расскажите о себе."],
-    }
-    return random.choice(defaults.get(lang, defaults["uz"]))
-
-
-def _offline_choices(topic, level):
-    import random
-    pool = {
-        "free":    [["Расскажи больше.","Не понимаю.","Хорошо!","Другая тема."],
-                    ["Ha, davom eting.","Tushunmadim.","Yaxshi!","Boshqa mavzu."]],
-        "greet":   [["Привет! Как дела?","Меня зовут...","Я из Ташкента.","Рад познакомиться!"],
-                    ["Salom! Qandaysan?","Ismim...","Toshkentdanman.","Tanishganimdan xursand!"]],
-        "travel":  [["Где вокзал?","Как доехать?","Это далеко?","Я заблудился."],
-                    ["Vokzal qayerda?","Qanday borish?","Uzoqmi?","Adashib qoldim."]],
-        "food":    [["Я люблю плов.","Это вкусно!","Что это?","Дайте меню."],
-                    ["Plov yaxshi ko'raman.","Bu mazali!","Bu nima?","Menyu bering."]],
-        "family":  [["У меня есть брат.","Моя мама врач.","Нас трое.","Семья большая."],
-                    ["Akam bor.","Onam shifokor.","Biz uch kishimiz.","Oila katta."]],
-        "weather": [["Сегодня жарко.","Идёт дождь.","Холодно!","Хорошая погода!"],
-                    ["Bugun issiq.","Yomg'ir yog'yapti.","Sovuq!","Ob-havo yaxshi!"]],
-        "sport":   [["Я люблю футбол.","Тренируюсь каждый день.","Команда победила!","Хожу в спортзал."],
-                    ["Futbol yaxshi ko'raman.","Har kuni mashq.","Jamoam g'olib!","Sport zalga boraman."]],
-        "work":    [["Я работаю врачом.","Работа трудная.","Зарплата хорошая.","Офис рядом."],
-                    ["Shifokorman.","Ish qiyin.","Maosh yaxshi.","Ofis yaqin."]],
-        "health":  [["Я здоров.","Немного болит голова.","Нужен врач.","Занимаюсь спортом."],
-                    ["Sog'lig'im yaxshi.","Boshim og'riydi.","Shifokor kerak.","Sport qilaman."]],
-        "numbers": [["Один, два, три...","Мне 20 лет.","Десять рублей.","Сто человек."],
-                    ["Bir, ikki, uch...","Menga 20 yosh.","O'n so'm.","Yuz kishi."]],
-    }
-    opts = pool.get(topic, pool["greet"])
-    return random.choice(opts)
-
-
-# ── API routes ─────────────────────────────────────
-@app.route("/api/chat", methods=["POST"])
 @require_auth
 def api_chat():
     internet     = db.get_setting("internet_allowed", "on") == "on"
@@ -3357,7 +2164,6 @@ def api_chat():
     return jsonify({"response": response, "choices": choices, "actions": actions, "ok": True})
 
 
-@app.route("/api/chat/choices", methods=["POST"])
 @require_auth
 def api_chat_choices():
     internet     = db.get_setting("internet_allowed", "on") == "on"
@@ -3417,7 +2223,6 @@ def api_chat_choices():
     return jsonify({"response": response, "choices": choices, "actions": actions, "ok": True})
 
 
-@app.route("/api/chat/teach", methods=["POST"])
 @require_auth
 def api_chat_teach():
     d        = request.get_json()
@@ -3433,20 +2238,17 @@ def api_chat_teach():
     return jsonify({"ok": True, "id": kid, "message": resp})
 
 
-@app.route("/api/chat/knowledge", methods=["GET"])
 @require_auth
 def api_chat_knowledge():
     return jsonify(ai_knowledge_list())
 
 
-@app.route("/api/chat/knowledge/<int:kid>", methods=["DELETE"])
 @require_auth
 def api_chat_knowledge_delete(kid):
     db._exec("DELETE FROM ai_knowledge WHERE id=?", (kid,))
     return jsonify({"ok": True})
 
 
-@app.route("/api/chat/settings", methods=["GET", "POST"])
 @require_auth
 def api_chat_settings():
     allowed = {"ai_conversation_level","ai_chat_mode","ai_topic","ai_personality",
@@ -3458,7 +2260,6 @@ def api_chat_settings():
             db.set_setting(k, str(v))
     return jsonify({"ok": True})
 
-@app.route("/api/ai/translate", methods=["POST"])
 @require_auth
 def api_ai_translate():
     if db.get_setting("internet_allowed", "on") != "on":
@@ -3478,7 +2279,6 @@ def api_ai_translate():
         return jsonify({"ok": True, "raw": resp})
 
 # ── AI — Grammatika tushuntirish ──────────────────
-@app.route("/api/ai/explain-grammar", methods=["POST"])
 @require_auth
 def api_ai_grammar():
     if db.get_setting("internet_allowed", "on") != "on":
@@ -3491,7 +2291,6 @@ def api_ai_grammar():
     return jsonify({"ok": True, "explanation": resp}) if resp else jsonify({"error": "AI xatosi"}), 500
 
 # ── AI — Lug'at yuklash (online) ──────────────────
-@app.route("/api/ai/fetch-words", methods=["POST"])
 @require_auth
 def api_ai_fetch_words():
     if db.get_setting("internet_allowed", "on") != "on":
@@ -3546,19 +2345,16 @@ def api_dl_all_words():
 # XOTIRA VA SHAXSIYLASHTIRISH
 # ══════════════════════════════════════════════════
 
-@app.route("/api/memory", methods=["GET"])
 @require_auth
 def api_memory_get():
     return jsonify(db.memory_all())
 
-@app.route("/api/memory", methods=["POST"])
 @require_auth
 def api_memory_set():
     for k, v in request.get_json().items():
         db.memory_set(k, v)
     return jsonify({"ok": True})
 
-@app.route("/api/memory/<key>", methods=["DELETE"])
 @require_auth
 def api_memory_delete(key):
     db._exec("DELETE FROM user_memory WHERE key=?", (key,))
@@ -3569,7 +2365,6 @@ def api_memory_delete(key):
 # STREAK VA HAFTALIK HISOBOT
 # ══════════════════════════════════════════════════
 
-@app.route("/api/streak")
 @require_auth
 def api_streak():
     today_row = db._row(
@@ -3580,7 +2375,6 @@ def api_streak():
         "last_30":     db.streak_last_days(30),
     })
 
-@app.route("/api/streak/log", methods=["POST"])
 @require_auth
 def api_streak_log():
     d = request.get_json()
@@ -3591,7 +2385,6 @@ def api_streak_log():
     )
     return jsonify({"ok": True, "streak": db.streak_current()})
 
-@app.route("/api/weekly-report")
 @require_auth
 def api_weekly_report():
     report = db.weekly_report()
@@ -3624,7 +2417,6 @@ def api_weekly_report():
 # ADAPTIV TEST VA STATISTIKA
 # ══════════════════════════════════════════════════
 
-@app.route("/api/adaptive/stats")
 @require_auth
 def api_adaptive_stats():
     return jsonify({
@@ -3632,7 +2424,6 @@ def api_adaptive_stats():
         "weakest": db.adaptive_weakest(5),
     })
 
-@app.route("/api/adaptive/update", methods=["POST"])
 @require_auth
 def api_adaptive_update():
     d = request.get_json()
@@ -3644,7 +2435,6 @@ def api_adaptive_update():
     db.streak_today(xp=xp, words=1 if correct else 0)
     return jsonify({"ok": True, "xp": xp})
 
-@app.route("/api/adaptive/words")
 @require_auth
 def api_adaptive_words():
     """Eng kuchsiz kategoriyalardan so'z qaytaradi"""
@@ -3666,7 +2456,6 @@ def api_adaptive_words():
 # CLOZE TEST (Bo'shliq to'ldirish)
 # ══════════════════════════════════════════════════
 
-@app.route("/api/cloze")
 @require_auth
 def api_cloze_list():
     level    = request.args.get("level", "")
@@ -3678,7 +2467,6 @@ def api_cloze_list():
         limit    = limit,
     ))
 
-@app.route("/api/cloze/<int:cid>/result", methods=["POST"])
 @require_auth
 def api_cloze_result(cid):
     d       = request.get_json()
@@ -3690,7 +2478,6 @@ def api_cloze_result(cid):
     db.streak_today(xp=xp, words=1 if correct else 0)
     return jsonify({"ok": True, "xp": xp})
 
-@app.route("/api/cloze", methods=["POST"])
 @require_auth
 def api_cloze_add():
     d = request.get_json()
@@ -3707,66 +2494,6 @@ def api_cloze_add():
 # ROLEPLAY SESSIYA
 # ══════════════════════════════════════════════════
 
-ROLEPLAY_SCENARIOS = {
-    "shop": {
-        "title":    "🛒 Do'konda xarid",
-        "user_role": "Xaridor (покупатель)",
-        "ai_role":   "Sotuvchi (продавец)",
-        "starter":   "Здравствуйте! Чем могу помочь? (Salom! Qanday yordam bera olaman?)",
-        "icon":      "🛒",
-    },
-    "doctor": {
-        "title":    "🏥 Doktorga borish",
-        "user_role": "Bemor (пациент)",
-        "ai_role":   "Shifokor (врач)",
-        "starter":   "Здравствуйте, присаживайтесь. На что жалуетесь? (Salom, o'tiring. Nima shikoyatingiz?)",
-        "icon":      "🏥",
-    },
-    "cafe": {
-        "title":    "☕ Kafeda",
-        "user_role": "Mehmon (гость)",
-        "ai_role":   "Ofitsiant (официант)",
-        "starter":   "Добрый день! Что будете заказывать? (Xayrli kun! Nima buyurasiz?)",
-        "icon":      "☕",
-    },
-    "airport": {
-        "title":    "✈️ Aeroportda",
-        "user_role": "Yo'lovchi (пассажир)",
-        "ai_role":   "Havo kompaniyasi xodimi",
-        "starter":   "Здравствуйте! Ваш паспорт, пожалуйста. (Salom! Pasportingizni bering.)",
-        "icon":      "✈️",
-    },
-    "hotel": {
-        "title":    "🏨 Mehmonxona",
-        "user_role": "Mehmon (гость)",
-        "ai_role":   "Resepsionchi (администратор)",
-        "starter":   "Добрый вечер! У вас есть бронь? (Xayrli kechqurun! Bron qilganmisiz?)",
-        "icon":      "🏨",
-    },
-    "bank": {
-        "title":    "🏦 Bankda",
-        "user_role": "Mijoz (клиент)",
-        "ai_role":   "Bank xodimi",
-        "starter":   "Здравствуйте! Чем могу помочь? (Salom! Qanday yordam beraman?)",
-        "icon":      "🏦",
-    },
-    "friend": {
-        "title":    "👫 Do'st bilan suhbat",
-        "user_role": "O'zing",
-        "ai_role":   "Rus tilida gaplashadigan do'st",
-        "starter":   "Привет! Как дела? Давно не виделись! (Salom! Qanday ishlar? Ko'rishmaganimizga ko'p bo'ldi!)",
-        "icon":      "👫",
-    },
-    "job": {
-        "title":    "💼 Ish suhbati",
-        "user_role": "Nomzod (кандидат)",
-        "ai_role":   "HR menejer",
-        "starter":   "Здравствуйте! Расскажите немного о себе. (Salom! O'zingiz haqingizda gapirib bering.)",
-        "icon":      "💼",
-    },
-}
-
-@app.route("/api/roleplay/scenarios")
 @require_auth
 def api_roleplay_scenarios():
     return jsonify([
@@ -3774,7 +2501,6 @@ def api_roleplay_scenarios():
         for k, v in ROLEPLAY_SCENARIOS.items()
     ])
 
-@app.route("/api/roleplay/start", methods=["POST"])
 @require_auth
 def api_roleplay_start():
     d        = request.get_json()
@@ -3825,7 +2551,6 @@ def api_roleplay_start():
         "icon":      sc["icon"],
     })
 
-@app.route("/api/roleplay/chat", methods=["POST"])
 @require_auth
 def api_roleplay_chat():
     d        = request.get_json()
@@ -3871,7 +2596,6 @@ def api_roleplay_chat():
     db.streak_today(xp=5, minutes=1)
     return jsonify({"response": resp, "ok": True})
 
-@app.route("/api/roleplay/end", methods=["POST"])
 @require_auth
 def api_roleplay_end():
     d   = request.get_json()
@@ -3900,7 +2624,6 @@ def api_roleplay_end():
 # MAQSAD KUZATUV VA HISOBOT
 # ══════════════════════════════════════════════════
 
-@app.route("/api/goals")
 @require_auth
 def api_goals_get():
     goal_words   = int(db.memory_get("daily_goal_words",  "10"))
@@ -3922,7 +2645,6 @@ def api_goals_get():
         "streak": db.streak_current(),
     })
 
-@app.route("/api/goals", methods=["POST"])
 @require_auth
 def api_goals_set():
     d = request.get_json()
@@ -3931,7 +2653,6 @@ def api_goals_set():
     if "minutes" in d: db.set_setting("daily_goal_min",  str(d["minutes"]))
     return jsonify({"ok": True})
 
-@app.route("/api/goals/report")
 @require_auth
 def api_goals_report():
     """Bugungi maqsad bajarilish foizi + motivatsion xabar"""
@@ -3960,12 +2681,10 @@ def api_goals_report():
 # ══════════════════════════════════════════════════
 
 # ── 1. Savol so'zlar ───────────────────────────────
-@app.route("/api/panel/qwords", methods=["GET"])
 @require_auth
 def panel_qwords_list():
     return jsonify(db._rows("SELECT * FROM ai_question_words ORDER BY word"))
 
-@app.route("/api/panel/qwords", methods=["POST"])
 @require_auth
 def panel_qwords_add():
     d    = request.get_json()
@@ -3980,13 +2699,11 @@ def panel_qwords_add():
         (word, d.get("lang", "uz")))
     return jsonify({"ok": True, "id": wid})
 
-@app.route("/api/panel/qwords/<int:wid>", methods=["DELETE"])
 @require_auth
 def panel_qwords_delete(wid):
     db._exec("DELETE FROM ai_question_words WHERE id=?", (wid,))
     return jsonify({"ok": True})
 
-@app.route("/api/panel/qwords/<int:wid>/toggle", methods=["POST"])
 @require_auth
 def panel_qwords_toggle(wid):
     row = db._row("SELECT enabled FROM ai_question_words WHERE id=?", (wid,))
@@ -3998,12 +2715,10 @@ def panel_qwords_toggle(wid):
 
 
 # ── 2. Nomlar ──────────────────────────────────────
-@app.route("/api/panel/names", methods=["GET"])
 @require_auth
 def panel_names_list():
     return jsonify(db._rows("SELECT * FROM ai_names ORDER BY name"))
 
-@app.route("/api/panel/names", methods=["POST"])
 @require_auth
 def panel_names_add():
     d    = request.get_json()
@@ -4018,7 +2733,6 @@ def panel_names_add():
         "INSERT INTO ai_names(name, q_words) VALUES(?,?)", (name, qws))
     return jsonify({"ok": True, "id": nid})
 
-@app.route("/api/panel/names/<int:nid>", methods=["DELETE"])
 @require_auth
 def panel_names_delete(nid):
     nm = db._row("SELECT name FROM ai_names WHERE id=?", (nid,))
@@ -4029,7 +2743,6 @@ def panel_names_delete(nid):
 
 
 # ── 3. Savol+Nom juftliklari (Ma'lumot) ────────────
-@app.route("/api/panel/qa", methods=["GET"])
 @require_auth
 def panel_qa_list():
     q_word = request.args.get("q_word", "")
@@ -4041,7 +2754,6 @@ def panel_qa_list():
     q += " ORDER BY updated_at DESC"
     return jsonify(db._rows(q, p))
 
-@app.route("/api/panel/qa", methods=["POST"])
 @require_auth
 def panel_qa_save():
     d      = request.get_json()
@@ -4071,7 +2783,6 @@ def panel_qa_save():
     db.conn.commit()
     return jsonify({"ok": True, "id": pid})
 
-@app.route("/api/panel/qa/<int:pid>", methods=["DELETE"])
 @require_auth
 def panel_qa_delete(pid):
     db._exec("DELETE FROM ai_qa_pairs WHERE id=?", (pid,))
@@ -4079,7 +2790,6 @@ def panel_qa_delete(pid):
 
 
 # ── 4. Sinonimlar guruhlari ────────────────────────
-@app.route("/api/panel/synonyms", methods=["GET"])
 @require_auth
 def panel_synonyms_list():
     rows = db._rows("SELECT * FROM ai_synonym_groups ORDER BY group_name")
@@ -4088,7 +2798,6 @@ def panel_synonyms_list():
         except: r["synonyms_list"] = []
     return jsonify(rows)
 
-@app.route("/api/panel/synonyms", methods=["POST"])
 @require_auth
 def panel_synonyms_save():
     d    = request.get_json()
@@ -4110,7 +2819,6 @@ def panel_synonyms_save():
         (name, syns_json, ans))
     return jsonify({"ok": True, "id": new_id})
 
-@app.route("/api/panel/synonyms/<int:sid>", methods=["DELETE"])
 @require_auth
 def panel_synonyms_delete(sid):
     db._exec("DELETE FROM ai_synonym_groups WHERE id=?", (sid,))
@@ -4118,13 +2826,11 @@ def panel_synonyms_delete(sid):
 
 
 # ── 5. Taqiqlangan so'zlar ─────────────────────────
-@app.route("/api/panel/banned", methods=["GET"])
 @require_auth
 def panel_banned_list():
     return jsonify(db._rows(
         "SELECT * FROM ai_banned_words ORDER BY word"))
 
-@app.route("/api/panel/banned", methods=["POST"])
 @require_auth
 def panel_banned_save():
     d    = request.get_json()
@@ -4146,7 +2852,6 @@ def panel_banned_save():
         "INSERT INTO ai_banned_words(word,answer) VALUES(?,?)", (word, ans))
     return jsonify({"ok": True, "id": new_id})
 
-@app.route("/api/panel/banned/<int:bid>", methods=["DELETE"])
 @require_auth
 def panel_banned_delete(bid):
     db._exec("DELETE FROM ai_banned_words WHERE id=?", (bid,))
@@ -4154,13 +2859,11 @@ def panel_banned_delete(bid):
 
 
 # ── 6. Standart javob ─────────────────────────────
-@app.route("/api/panel/default", methods=["GET"])
 @require_auth
 def panel_default_get():
     row = db._row("SELECT text FROM ai_default_response WHERE id=1")
     return jsonify({"text": row["text"] if row else ""})
 
-@app.route("/api/panel/default", methods=["POST"])
 @require_auth
 def panel_default_set():
     text = request.get_json().get("text", "").strip()
@@ -4173,7 +2876,6 @@ def panel_default_set():
 
 
 # ── 7. Real-vaqt test ──────────────────────────────
-@app.route("/api/panel/test", methods=["POST"])
 @require_auth
 def panel_test():
     """Kiritilgan xabarga panel engine javobini qaytaradi"""
@@ -4192,7 +2894,6 @@ def panel_test():
 
 
 # ── 8. Panel umumiy statistika ────────────────────
-@app.route("/api/panel/stats", methods=["GET"])
 @require_auth
 def panel_stats():
     return jsonify({
@@ -4210,28 +2911,11 @@ def panel_stats():
 # ══════════════════════════════════════════════════
 
 # ── Yordamchi funksiyalar ─────────────────────────
-def _sc_row(sql, params=()):
-    r = db._row(sql, params)
-    return dict(r) if r else None
-
-def _sc_rows(sql, params=()):
-    return db._rows(sql, params)
-
-def _sc_exec(sql, params=()):
-    db._exec(sql, params)
-
-def _sc_ins(sql, params=()):
-    return db._ins(sql, params)
-
-
-# ── 1. Triggers (Savol so'zlar) ───────────────────
-@app.route("/api/sc/triggers", methods=["GET"])
 @require_auth
 def sc_triggers_list():
     return jsonify(_sc_rows(
         "SELECT * FROM sc_triggers ORDER BY word"))
 
-@app.route("/api/sc/triggers", methods=["POST"])
 @require_auth
 def sc_triggers_add():
     d    = request.get_json()
@@ -4245,13 +2929,11 @@ def sc_triggers_add():
         "INSERT INTO sc_triggers(word) VALUES(?)", (word,))
     return jsonify({"ok": True, "id": wid})
 
-@app.route("/api/sc/triggers/<int:wid>", methods=["DELETE"])
 @require_auth
 def sc_triggers_delete(wid):
     _sc_exec("DELETE FROM sc_triggers WHERE id=?", (wid,))
     return jsonify({"ok": True})
 
-@app.route("/api/sc/triggers/<int:wid>/toggle", methods=["POST"])
 @require_auth
 def sc_triggers_toggle(wid):
     r = _sc_row("SELECT enabled FROM sc_triggers WHERE id=?", (wid,))
@@ -4263,13 +2945,11 @@ def sc_triggers_toggle(wid):
 
 
 # ── 2. Entities (Nomlar) ──────────────────────────
-@app.route("/api/sc/entities", methods=["GET"])
 @require_auth
 def sc_entities_list():
     return jsonify(_sc_rows(
         "SELECT * FROM sc_entities ORDER BY name"))
 
-@app.route("/api/sc/entities", methods=["POST"])
 @require_auth
 def sc_entities_add():
     d    = request.get_json()
@@ -4288,7 +2968,6 @@ def sc_entities_add():
         (name, d.get("triggers",""), d.get("aliases","")))
     return jsonify({"ok": True, "id": eid})
 
-@app.route("/api/sc/entities/<int:eid>", methods=["DELETE"])
 @require_auth
 def sc_entities_delete(eid):
     row = _sc_row("SELECT name FROM sc_entities WHERE id=?", (eid,))
@@ -4299,7 +2978,6 @@ def sc_entities_delete(eid):
 
 
 # ── 3. Facts (Savol+Nom → Javob) ─────────────────
-@app.route("/api/sc/facts", methods=["GET"])
 @require_auth
 def sc_facts_list():
     rows = _sc_rows("SELECT * FROM sc_facts ORDER BY updated_at DESC")
@@ -4314,7 +2992,6 @@ def sc_facts_list():
             r["sm2"] = {}
     return jsonify(rows)
 
-@app.route("/api/sc/facts", methods=["POST"])
 @require_auth
 def sc_facts_save():
     d       = request.get_json()
@@ -4350,13 +3027,11 @@ def sc_facts_save():
     db.conn.commit()
     return jsonify({"ok": True, "id": fid})
 
-@app.route("/api/sc/facts/<int:fid>", methods=["DELETE"])
 @require_auth
 def sc_facts_delete(fid):
     _sc_exec("DELETE FROM sc_facts WHERE id=?", (fid,))
     return jsonify({"ok": True})
 
-@app.route("/api/sc/facts/<int:fid>/sm2", methods=["POST"])
 @require_auth
 def sc_facts_sm2(fid):
     d       = request.get_json()
@@ -4393,7 +3068,6 @@ def sc_facts_sm2(fid):
 
 
 # ── 4. Aliases (Sinonimlar) ───────────────────────
-@app.route("/api/sc/aliases", methods=["GET"])
 @require_auth
 def sc_aliases_list():
     rows = _sc_rows("SELECT * FROM sc_aliases ORDER BY id")
@@ -4404,7 +3078,6 @@ def sc_aliases_list():
             r["words"] = []
     return jsonify(rows)
 
-@app.route("/api/sc/aliases", methods=["POST"])
 @require_auth
 def sc_aliases_save():
     d     = request.get_json()
@@ -4424,7 +3097,6 @@ def sc_aliases_save():
         (wj, reply, fuzz))
     return jsonify({"ok": True, "id": aid})
 
-@app.route("/api/sc/aliases/<int:aid>", methods=["DELETE"])
 @require_auth
 def sc_aliases_delete(aid):
     _sc_exec("DELETE FROM sc_aliases WHERE id=?", (aid,))
@@ -4432,13 +3104,11 @@ def sc_aliases_delete(aid):
 
 
 # ── 5. Blocklist (Taqiqlangan so'zlar) ────────────
-@app.route("/api/sc/blocklist", methods=["GET"])
 @require_auth
 def sc_blocklist_list():
     return jsonify(_sc_rows(
         "SELECT * FROM sc_blocklist ORDER BY word"))
 
-@app.route("/api/sc/blocklist", methods=["POST"])
 @require_auth
 def sc_blocklist_save():
     d    = request.get_json()
@@ -4459,7 +3129,6 @@ def sc_blocklist_save():
         "INSERT INTO sc_blocklist(word,reply) VALUES(?,?)", (word, rep))
     return jsonify({"ok": True, "id": new_id})
 
-@app.route("/api/sc/blocklist/<int:bid>", methods=["DELETE"])
 @require_auth
 def sc_blocklist_delete(bid):
     _sc_exec("DELETE FROM sc_blocklist WHERE id=?", (bid,))
@@ -4467,7 +3136,6 @@ def sc_blocklist_delete(bid):
 
 
 # ── 6. LTM (Uzoq muddatli xotira) ────────────────
-@app.route("/api/sc/ltm", methods=["GET"])
 @require_auth
 def sc_ltm_list():
     rows = _sc_rows("SELECT * FROM sc_ltm ORDER BY ltm_key, confidence DESC")
@@ -4480,7 +3148,6 @@ def sc_ltm_list():
         result[k].append(r)
     return jsonify(result)
 
-@app.route("/api/sc/ltm", methods=["POST"])
 @require_auth
 def sc_ltm_save():
     d   = request.get_json()
@@ -4503,13 +3170,11 @@ def sc_ltm_save():
         (key, val, conf, src))
     return jsonify({"ok": True, "id": lid})
 
-@app.route("/api/sc/ltm/<key>", methods=["DELETE"])
 @require_auth
 def sc_ltm_delete(key):
     _sc_exec("DELETE FROM sc_ltm WHERE ltm_key=?", (key,))
     return jsonify({"ok": True})
 
-@app.route("/api/sc/ltm/clear", methods=["POST"])
 @require_auth
 def sc_ltm_clear():
     _sc_exec("DELETE FROM sc_ltm")
@@ -4517,7 +3182,6 @@ def sc_ltm_clear():
 
 
 # ── 7. Personality ────────────────────────────────
-@app.route("/api/sc/personality", methods=["GET"])
 @require_auth
 def sc_personality_get():
     row = _sc_row("SELECT data_json FROM sc_personality WHERE id=1")
@@ -4526,7 +3190,6 @@ def sc_personality_get():
     except Exception:
         return jsonify({})
 
-@app.route("/api/sc/personality", methods=["POST"])
 @require_auth
 def sc_personality_save():
     d = request.get_json()
@@ -4538,13 +3201,11 @@ def sc_personality_save():
 
 
 # ── 8. Default javob ──────────────────────────────
-@app.route("/api/sc/default", methods=["GET"])
 @require_auth
 def sc_default_get():
     row = _sc_row("SELECT text FROM sc_default WHERE id=1")
     return jsonify({"text": row["text"] if row else ""})
 
-@app.route("/api/sc/default", methods=["POST"])
 @require_auth
 def sc_default_save():
     text = (request.get_json().get("text") or "").strip()
@@ -4560,7 +3221,6 @@ def sc_default_save():
 
 
 # ── 9. Stats ──────────────────────────────────────
-@app.route("/api/sc/stats", methods=["GET"])
 @require_auth
 def sc_stats_get():
     row = _sc_row("SELECT data_json FROM sc_stats WHERE id=1")
@@ -4569,7 +3229,6 @@ def sc_stats_get():
     except Exception:
         return jsonify({})
 
-@app.route("/api/sc/stats", methods=["POST"])
 @require_auth
 def sc_stats_save():
     d = request.get_json()
@@ -4579,7 +3238,6 @@ def sc_stats_save():
         (json.dumps(d, ensure_ascii=False),))
     return jsonify({"ok": True})
 
-@app.route("/api/sc/stats/reset", methods=["POST"])
 @require_auth
 def sc_stats_reset():
     empty = json.dumps({
@@ -4591,13 +3249,11 @@ def sc_stats_reset():
 
 
 # ── 10. Learn log ─────────────────────────────────
-@app.route("/api/sc/log", methods=["GET"])
 @require_auth
 def sc_log_list():
     return jsonify(_sc_rows(
         "SELECT * FROM sc_learn_log ORDER BY logged_at DESC LIMIT 50"))
 
-@app.route("/api/sc/log", methods=["POST"])
 @require_auth
 def sc_log_add():
     d = request.get_json()
@@ -4606,7 +3262,6 @@ def sc_log_add():
         (d.get("q"), d.get("a"), d.get("trigger"), d.get("entity"), d.get("type")))
     return jsonify({"ok": True})
 
-@app.route("/api/sc/log/clear", methods=["POST"])
 @require_auth
 def sc_log_clear():
     _sc_exec("DELETE FROM sc_learn_log")
@@ -4614,7 +3269,6 @@ def sc_log_clear():
 
 
 # ── 11. Bulk ma'lumot yuklanishi ──────────────────
-@app.route("/api/sc/bulk", methods=["POST"])
 @require_auth
 def sc_bulk():
     rows    = request.get_json().get("rows") or []
@@ -4650,7 +3304,6 @@ def sc_bulk():
 
 
 # ── 12. Export/Import (to'liq DB) ─────────────────
-@app.route("/api/sc/export", methods=["GET"])
 @require_auth
 def sc_export():
     data = {
@@ -4678,7 +3331,6 @@ def sc_export():
         data["stats"] = {}
     return jsonify(data)
 
-@app.route("/api/sc/import", methods=["POST"])
 @require_auth
 def sc_import():
     d = request.get_json()
@@ -4721,7 +3373,6 @@ def sc_import():
 
 
 # ── 13. Nuke (hammasini o'chirish) ────────────────
-@app.route("/api/sc/nuke", methods=["POST"])
 @require_auth
 def sc_nuke():
     for tbl in ["sc_triggers","sc_entities","sc_facts","sc_aliases",
