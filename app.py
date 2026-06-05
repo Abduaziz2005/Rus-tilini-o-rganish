@@ -55,7 +55,7 @@ app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
 
 # ── ANTHROPIC API ─────────────────────────────────
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-AI_MODEL = "claude-sonnet-4-20250514"
+AI_MODEL = "claude-sonnet-4-5"
 
 def call_ai(messages, system_prompt="", max_tokens=1000):
     """Anthropic API chaqiruvi"""
@@ -84,7 +84,18 @@ def call_ai(messages, system_prompt="", max_tokens=1000):
         with urllib.request.urlopen(req, timeout=30) as resp:
             result = json.loads(resp.read())
             return result["content"][0]["text"]
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", errors="ignore")
+        print(f"[AI] HTTP {e.code}: {body[:300]}")
+        return None
+    except urllib.error.URLError as e:
+        print(f"[AI] URL xatosi: {e.reason}")
+        return None
+    except (KeyError, IndexError, json.JSONDecodeError) as e:
+        print(f"[AI] Javob parse xatosi: {e}")
+        return None
     except Exception as e:
+        print(f"[AI] Noma'lum xato: {e}")
         return None
 
 # ── DATABASE ──────────────────────────────────────
@@ -1023,7 +1034,9 @@ def api_ai_grammar():
     topic = request.get_json().get("topic", "").strip()
     resp = call_ai([{"role": "user", "content": f"Rus tili grammatikasini o'zbek tilida tushuntir: '{topic}'. Misollar bilan."}],
                    max_tokens=600)
-    return jsonify({"ok": True, "explanation": resp}) if resp else jsonify({"error": "AI xatosi"}), 500
+    if resp:
+        return jsonify({"ok": True, "explanation": resp})
+    return jsonify({"error": "AI xatosi"}), 500
 
 # ── AI — Lug'at yuklash (online) ──────────────────
 @app.route("/api/ai/fetch-words", methods=["POST"])
