@@ -3499,15 +3499,8 @@ if __name__ == "__main__":
     print("=" * 60)
     print(f"  🌐  URL     : http://localhost:5800")
     print(f"  📂  Papka  : {BASE_DIR}")
-    ai_ok = "✅ tayyor (Gemini)" if GEMINI_API_KEY else "❌ GEMINI_API_KEY o'rnatilmagan"
-    print(f"  🤖  AI     : {ai_ok}")
     notif_ok = "✅" if NOTIF_AVAILABLE else "⚠ win10toast o'rnatilmagan (pip install win10toast)"
     print(f"  🔔  Notif  : {notif_ok}")
     print("=" * 60)
-    if not GEMINI_API_KEY:
-        print("\n  ⚠️  AI funksiyalari uchun bepul kalit oling:")
-        print("  https://aistudio.google.com/app/apikey")
-        print("  set GEMINI_API_KEY=AIza... (Windows)")
-        print("  yoki: export GEMINI_API_KEY=AIza... (Linux/Mac)\n")
     threading.Thread(target=open_browser, daemon=True).start()
     app.run(host="0.0.0.0", port=5800, debug=False, threaded=True)
