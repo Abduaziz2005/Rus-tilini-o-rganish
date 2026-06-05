@@ -67,8 +67,106 @@ class Database:
 
     def _create_tables(self):
         self.conn.executescript("""
-        VALUES(1,'{"brief":5,"formal":5,"extra":3,"mood":"😐 Neytral","name":"Samarali AI","prefix":""}');
-        VALUES(1,'Hali bilmayman. O''rgatib qo''ysangiz, minnatdor bo''laman!');
+        -- Sozlamalar
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY, value TEXT
+        );
+
+        -- O'quvchi profili
+        CREATE TABLE IF NOT EXISTS profile (
+            id INTEGER PRIMARY KEY,
+            name TEXT DEFAULT 'O''quvchi',
+            level TEXT DEFAULT 'beginner',
+            total_xp INTEGER DEFAULT 0,
+            streak_days INTEGER DEFAULT 0,
+            last_study_date TEXT DEFAULT '',
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+
+        -- Lugat sozlar
+        CREATE TABLE IF NOT EXISTS words (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            russian TEXT NOT NULL,
+            uzbek TEXT NOT NULL,
+            pronunciation TEXT DEFAULT '',
+            category TEXT DEFAULT 'general',
+            level TEXT DEFAULT 'beginner',
+            example_ru TEXT DEFAULT '',
+            example_uz TEXT DEFAULT '',
+            times_seen INTEGER DEFAULT 0,
+            times_correct INTEGER DEFAULT 0,
+            times_wrong INTEGER DEFAULT 0,
+            next_review TEXT DEFAULT (datetime('now')),
+            ease_factor REAL DEFAULT 2.5,
+            interval_days INTEGER DEFAULT 1,
+            is_downloaded INTEGER DEFAULT 0,
+            edited_by_user INTEGER DEFAULT 0,
+            added_at TEXT DEFAULT (datetime('now'))
+        );
+
+        -- Grammatika qoidalari
+        CREATE TABLE IF NOT EXISTS grammar_rules (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            content TEXT NOT NULL,
+            level TEXT DEFAULT 'beginner',
+            category TEXT DEFAULT 'general',
+            examples_json TEXT DEFAULT '[]',
+            exercises_json TEXT DEFAULT '[]',
+            is_downloaded INTEGER DEFAULT 0,
+            added_at TEXT DEFAULT (datetime('now'))
+        );
+
+        -- Dars jadvali
+        CREATE TABLE IF NOT EXISTS schedule (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            description TEXT DEFAULT '',
+            lesson_type TEXT DEFAULT 'vocabulary',
+            scheduled_at TEXT NOT NULL,
+            duration_min INTEGER DEFAULT 30,
+            status TEXT DEFAULT 'pending',
+            completed_at TEXT DEFAULT '',
+            started_at TEXT DEFAULT '',
+            score INTEGER DEFAULT 0,
+            notified INTEGER DEFAULT 0
+        );
+
+        -- O'qish tarixi
+        CREATE TABLE IF NOT EXISTS study_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            lesson_type TEXT NOT NULL,
+            duration_sec INTEGER DEFAULT 0,
+            score INTEGER DEFAULT 0,
+            xp_earned INTEGER DEFAULT 0,
+            details_json TEXT DEFAULT '{}',
+            studied_at TEXT DEFAULT (datetime('now'))
+        );
+
+        -- O'yin natijalari
+        CREATE TABLE IF NOT EXISTS game_scores (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            game_type TEXT NOT NULL,
+            score INTEGER DEFAULT 0,
+            max_score INTEGER DEFAULT 0,
+            time_sec INTEGER DEFAULT 0,
+            played_at TEXT DEFAULT (datetime('now'))
+        );
+
+        -- Offline yuklamalar
+        CREATE TABLE IF NOT EXISTS downloads (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            content_type TEXT NOT NULL,
+            content_id INTEGER NOT NULL,
+            file_path TEXT DEFAULT '',
+            size_kb INTEGER DEFAULT 0,
+            downloaded_at TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_words_level    ON words(level);
+        CREATE INDEX IF NOT EXISTS idx_words_review   ON words(next_review);
+        CREATE INDEX IF NOT EXISTS idx_schedule_time  ON schedule(scheduled_at);
+        CREATE INDEX IF NOT EXISTS idx_history_date   ON study_history(studied_at DESC);
         """)
         self.conn.commit()
 
